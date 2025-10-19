@@ -1,0 +1,38 @@
+model:
+  pretrained_name: roberta-base   # 从 bert-base-uncased 改成 roberta-base
+  dropout: 0.2
+
+run:
+  name: url_mvp
+
+paths:
+  data_root: ${oc.env:DATA_ROOT, data/processed}
+  train_index: ${paths.data_root}/train.csv
+  val_index:   ${paths.data_root}/val.csv
+  test_index:  ${paths.data_root}/test.csv
+
+hardware:
+  accelerator: auto
+  devices: auto
+  precision: 32
+  num_workers: 4
+
+data:
+  text_col: url_text
+  label_col: label
+  max_length: 256
+  sample_fraction: 1.0
+
+train:
+  epochs: 5
+  lr: 2e-5
+  bs: 16
+  pos_weight: 1.0
+  log_every: 50
+  seed: 42
+  weight_decay: 0.01
+
+eval:
+  bs: 32
+  monitor: val/auroc
+  patience: 2

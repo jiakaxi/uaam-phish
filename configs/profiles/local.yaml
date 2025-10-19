@@ -1,0 +1,12 @@
+hardware:
+  accelerator: cpu
+  devices: 1
+  precision: 32
+  num_workers: 0
+
+data:
+  sample_fraction: 1.0   # 小集快速迭代；想更真实可改 0.6~1.0
+
+train:
+  bs: 4
+  # epochs 在 default.yaml 里是 3；想更稳可调到 5

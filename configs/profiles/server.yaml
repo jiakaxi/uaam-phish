@@ -1,0 +1,12 @@
+hardware:
+  accelerator: gpu
+  devices: 1        # 多卡可写 2 或 [0,1]
+  strategy: auto    # 多卡使用 ddp
+  precision: 16-mixed
+  num_workers: 8
+
+data:
+  sample_fraction: 1.0
+
+train:
+  bs: 32

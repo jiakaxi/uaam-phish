@@ -1,0 +1,9 @@
+Metadata-Version: 2.4
+Name: uaam-phish
+Version: 0.1
+Requires-Dist: pandas
+Requires-Dist: scikit-learn
+Requires-Dist: tldextract
+Requires-Dist: torch
+Requires-Dist: pytorch-lightning
+Dynamic: requires-dist

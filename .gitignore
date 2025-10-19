@@ -1,0 +1,32 @@
+﻿# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Data (exclude raw data)
+data/raw/
+data/tmp/
+*.csv
+*.zip
+*.tar
+*.gz
+
+# Logs and checkpoints
+lightning_logs/
+*.log
+
+# System / IDE
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Model checkpoints
+*.ckpt
+*.pt
+*.pth
