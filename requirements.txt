@@ -1,8 +1,32 @@
+# 深度学习框架
 torch>=2.2
 pytorch-lightning>=2.3
+
+# 预训练模型和评估
 transformers>=4.41
 torchmetrics>=1.0
-scikit-learn>=1.4
+
+# 数据处理
 pandas>=2.1
 numpy>=1.26
+scikit-learn>=1.4
+
+# URL 解析
+tldextract>=3.4
+
+# 配置管理
 omegaconf>=2.3
+
+# 可选：数据可视化和分析
+matplotlib>=3.7
+seaborn>=0.12
+
+# 可选：进度条
+tqdm>=4.65
+
+rich>=13.7
+pyyaml>=6.0
+dvc>=3.50
+pytest>=8.1
+ruff>=0.6
+black>=24.8

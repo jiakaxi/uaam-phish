@@ -1,0 +1,4 @@
+# 忽略不需要被 DVC 跟踪的文件/目录
+**/.ipynb_checkpoints
+**/__pycache__
+lightning_logs/

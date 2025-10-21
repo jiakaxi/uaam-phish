@@ -1,4 +1,5 @@
 ﻿# Python cache
+**/.ipynb_checkpoints
 __pycache__/
 *.py[cod]
 *.pyo
@@ -18,6 +19,7 @@ data/tmp/
 
 # Logs and checkpoints
 lightning_logs/
+experiments/
 *.log
 
 # System / IDE

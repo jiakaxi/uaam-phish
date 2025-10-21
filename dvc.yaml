@@ -1,0 +1,10 @@
+stages:
+  build_master_and_splits:
+    cmd: python scripts/build_master_and_splits.py --benign data/raw/dataset --phish data/raw/fish_dataset --outdir data/processed
+    deps:
+      - scripts/build_master_and_splits.py
+      - data/raw/dataset
+      - data/raw/fish_dataset
+    outs:
+      - data/processed:
+          persist: true

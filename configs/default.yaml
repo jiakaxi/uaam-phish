@@ -1,6 +1,9 @@
 model:
-  pretrained_name: roberta-base   # 从 bert-base-uncased 改成 roberta-base
+  pretrained_name: roberta-base
   dropout: 0.2
+  cache_dir: ${oc.env:HF_CACHE_DIR, null}
+  local_files_only: ${oc.env:HF_LOCAL_ONLY, false}
+
 
 run:
   name: url_mvp

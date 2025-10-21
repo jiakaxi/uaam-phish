@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "[pre-commit] Running ruff..."
+ruff check .
+
+echo "[pre-commit] Running black --check..."
+black --check .
+
+echo "[pre-commit] Running pytest..."
+pytest -q
+
+echo "[pre-commit] OK"
