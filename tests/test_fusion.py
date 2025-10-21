@@ -1,20 +1,38 @@
 import torch
+import torch.nn as nn
 from types import SimpleNamespace
+
 from src.systems.url_only_module import UrlOnlySystem
 
 
-def test_url_only_system_step():
+def test_url_only_system_step(monkeypatch):
     # Create minimal config
     cfg = SimpleNamespace(
         model=SimpleNamespace(
             pretrained_name="prajjwal1/bert-tiny",
             dropout=0.1,
+            cache_dir="tests/.cache",
+            local_files_only=True,
         ),
         train=SimpleNamespace(
             lr=1e-3,
             weight_decay=0.0,
             pos_weight=1.0,
         ),
+    )
+
+    class DummyEncoder(nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.config = SimpleNamespace(hidden_size=8)
+
+        def forward(self, batch):
+            batch_size = batch["input_ids"].size(0)
+            return torch.zeros(batch_size, self.config.hidden_size)
+
+    monkeypatch.setattr(
+        "src.systems.url_only_module.UrlBertEncoder",
+        lambda *args, **kwargs: DummyEncoder(),
     )
 
     sys = UrlOnlySystem(cfg)

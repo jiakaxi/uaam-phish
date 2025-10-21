@@ -1,16 +1,22 @@
 import os
-import pandas as pd
 from types import SimpleNamespace
+
+import pandas as pd
+import torch
+
 from src.datamodules.url_datamodule import UrlDataModule
 
 
-def test_datamodule_smoke(tmp_path):
+def test_datamodule_smoke(tmp_path, monkeypatch):
     # Create tiny CSVs
     df = pd.DataFrame({"url_text": ["a.com", "b.com"], "label": [0, 1]})
     train_csv = tmp_path / "train.csv"
     val_csv = tmp_path / "val.csv"
     df.to_csv(train_csv, index=False)
     df.to_csv(val_csv, index=False)
+
+    cache_dir = tmp_path / "hf-cache"
+    cache_dir.mkdir(parents=True, exist_ok=True)
 
     # Create minimal config
     cfg = SimpleNamespace(
@@ -27,7 +33,8 @@ def test_datamodule_smoke(tmp_path):
         ),
         model=SimpleNamespace(
             pretrained_name="prajjwal1/bert-tiny",
-            cache_dir=os.environ.get("HF_CACHE_DIR"),
+            cache_dir=str(cache_dir),
+            local_files_only=True,
         ),
         train=SimpleNamespace(
             bs=2,
@@ -36,6 +43,19 @@ def test_datamodule_smoke(tmp_path):
         hardware=SimpleNamespace(
             num_workers=0,
         ),
+    )
+
+    class DummyTokenizer:
+        def __call__(self, text, padding, truncation, max_length, return_tensors):
+            token_ids = torch.arange(max_length, dtype=torch.long).unsqueeze(0)
+            return {
+                "input_ids": token_ids,
+                "attention_mask": torch.ones_like(token_ids),
+            }
+
+    monkeypatch.setattr(
+        "src.datamodules.url_datamodule.AutoTokenizer.from_pretrained",
+        lambda *args, **kwargs: DummyTokenizer(),
     )
 
     dm = UrlDataModule(cfg)
