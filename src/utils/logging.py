@@ -1,6 +1,6 @@
 import logging
-import sys
 from rich.logging import RichHandler
+
 
 def get_logger(name: str = "uaam") -> logging.Logger:
     logger = logging.getLogger(name)
@@ -19,9 +19,9 @@ def get_logger(name: str = "uaam") -> logging.Logger:
 
 
 ## 任意入口处
-#from src.utils.seed import set_global_seed
-#from src.utils.logging import get_logger
+# from src.utils.seed import set_global_seed
+# from src.utils.logging import get_logger
 
-#set_global_seed(3407)
-#logger = get_logger(__name__)
-#logger.info("Seed set. Starting training...")
+# set_global_seed(3407)
+# logger = get_logger(__name__)
+# logger.info("Seed set. Starting training...")

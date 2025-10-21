@@ -5,6 +5,7 @@ import pytorch_lightning as pl
 from torchmetrics.classification import BinaryF1Score, BinaryAUROC
 from src.models.url_encoder import UrlBertEncoder
 
+
 class UrlOnlySystem(pl.LightningModule):
     def __init__(self, cfg):
         super().__init__()
@@ -13,19 +14,23 @@ class UrlOnlySystem(pl.LightningModule):
         self.encoder = UrlBertEncoder(cfg.model.pretrained_name, cfg.model.dropout)
         hidden = self.encoder.config.hidden_size
         self.head = nn.Sequential(
-            nn.Linear(hidden, hidden), nn.ReLU(), nn.Dropout(cfg.model.dropout),
-            nn.Linear(hidden, 1)
+            nn.Linear(hidden, hidden),
+            nn.ReLU(),
+            nn.Dropout(cfg.model.dropout),
+            nn.Linear(hidden, 1),
         )
         # register pos_weight as a buffer for device-safe loss creation
-        self.register_buffer("pos_weight", torch.tensor([cfg.train.pos_weight], dtype=torch.float32))
+        self.register_buffer(
+            "pos_weight", torch.tensor([cfg.train.pos_weight], dtype=torch.float32)
+        )
         self.f1 = BinaryF1Score()
         self.auroc = BinaryAUROC()
         self._val_logits = []
         self._val_y = []
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
-        z = self.encoder(batch)             # [B,H]
-        logit = self.head(z).squeeze(1)     # [B]
+        z = self.encoder(batch)  # [B,H]
+        logit = self.head(z).squeeze(1)  # [B]
         return logit
 
     def step(
@@ -44,12 +49,18 @@ class UrlOnlySystem(pl.LightningModule):
         tn = ((pred == 0) & (y == 0)).sum().float()
         fp = ((pred == 1) & (y == 0)).sum().float()
         fpr = fp / (fp + tn + 1e-9)
-        self.log_dict({
-            f"{stage}/loss": loss,
-            f"{stage}/f1": self.f1(pred, y.int()),
-            f"{stage}/auroc": self.auroc(prob, y.int()),
-            f"{stage}/fpr": fpr,
-        }, prog_bar=True, on_step=(stage=="train"), on_epoch=True, sync_dist=False)
+        self.log_dict(
+            {
+                f"{stage}/loss": loss,
+                f"{stage}/f1": self.f1(pred, y.int()),
+                f"{stage}/auroc": self.auroc(prob, y.int()),
+                f"{stage}/fpr": fpr,
+            },
+            prog_bar=True,
+            on_step=(stage == "train"),
+            on_epoch=True,
+            sync_dist=False,
+        )
         return loss
 
     def training_step(self, batch, batch_idx):
@@ -64,16 +75,12 @@ class UrlOnlySystem(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         logit = self.forward(batch)
         loss = self.step(batch, "test", logit=logit)
-        
+
         # 返回预测结果用于可视化
         y = batch["label"].float()
         prob = torch.sigmoid(logit)
-        
-        return {
-            'y_true': y,
-            'y_prob': prob,
-            'loss': loss
-        }
+
+        return {"y_true": y, "y_prob": prob, "loss": loss}
 
     def on_validation_epoch_start(self):
         self._val_logits = []
@@ -81,6 +88,7 @@ class UrlOnlySystem(pl.LightningModule):
 
     def on_validation_epoch_end(self):
         import torch
+
         logits = torch.cat(self._val_logits)
         y = torch.cat(self._val_y).int()
         prob = logits.sigmoid()

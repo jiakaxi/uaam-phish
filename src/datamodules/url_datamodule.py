@@ -5,6 +5,7 @@ from torch.utils.data import Dataset, DataLoader
 import pytorch_lightning as pl
 from transformers import AutoTokenizer
 
+
 class UrlDataset(Dataset):
     def __init__(
         self,
@@ -21,8 +22,12 @@ class UrlDataset(Dataset):
         super().__init__()
         df = pd.read_csv(csv_path)
         if 0 < sample_fraction < 1.0:
-            df = df.sample(frac=sample_fraction, random_state=seed).reset_index(drop=True)
-        assert text_col in df.columns and label_col in df.columns, f"CSV must contain {text_col},{label_col}"
+            df = df.sample(frac=sample_fraction, random_state=seed).reset_index(
+                drop=True
+            )
+        assert (
+            text_col in df.columns and label_col in df.columns
+        ), f"CSV must contain {text_col},{label_col}"
         self.texts = df[text_col].astype(str).tolist()
         self.labels = df[label_col].astype(int).tolist()
         try:
@@ -41,17 +46,18 @@ class UrlDataset(Dataset):
 
     def __getitem__(self, idx: int) -> Dict[str, torch.Tensor]:
         text = self.texts[idx]
-        lab  = self.labels[idx]
+        lab = self.labels[idx]
         tok = self.tokenizer(
             text,
-            padding='max_length',
+            padding="max_length",
             truncation=True,
             max_length=self.max_length,
-            return_tensors='pt'
+            return_tensors="pt",
         )
         item = {k: v.squeeze(0) for k, v in tok.items()}
         item["label"] = torch.tensor(lab, dtype=torch.float32)
         return item
+
 
 class UrlDataModule(pl.LightningDataModule):
     def __init__(self, cfg):
@@ -70,21 +76,36 @@ class UrlDataModule(pl.LightningDataModule):
             max_length=c.data.max_length,
             sample_fraction=self.sample_fraction,
             seed=self.seed,
-            cache_dir=c.model.get("cache_dir"),
-            local_files_only=bool(c.model.get("local_files_only", False)),
+            cache_dir=getattr(c.model, "cache_dir", None),
+            local_files_only=bool(getattr(c.model, "local_files_only", False)),
         )
         self.train_set = UrlDataset(c.paths.train_index, **mk)
-        self.val_set   = UrlDataset(c.paths.val_index,   **mk)
-        self.test_set  = UrlDataset(c.paths.test_index,  **mk)
+        self.val_set = UrlDataset(c.paths.val_index, **mk)
+        self.test_set = UrlDataset(c.paths.test_index, **mk)
 
     def train_dataloader(self):
-        return DataLoader(self.train_set, batch_size=self.cfg.train.bs, shuffle=True,
-                          num_workers=self.num_workers, pin_memory=True)
+        return DataLoader(
+            self.train_set,
+            batch_size=self.cfg.train.bs,
+            shuffle=True,
+            num_workers=self.num_workers,
+            pin_memory=True,
+        )
 
     def val_dataloader(self):
-        return DataLoader(self.val_set, batch_size=self.cfg.eval.bs, shuffle=False,
-                          num_workers=self.num_workers, pin_memory=True)
+        return DataLoader(
+            self.val_set,
+            batch_size=self.cfg.eval.bs,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=True,
+        )
 
     def test_dataloader(self):
-        return DataLoader(self.test_set, batch_size=self.cfg.eval.bs, shuffle=False,
-                          num_workers=self.num_workers, pin_memory=True)
+        return DataLoader(
+            self.test_set,
+            batch_size=self.cfg.eval.bs,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=True,
+        )

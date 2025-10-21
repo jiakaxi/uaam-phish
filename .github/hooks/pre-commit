@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
+# Pre-commit hook - works on both Unix and Windows (via Git Bash)
 set -euo pipefail
 
 echo "[pre-commit] Running ruff..."
-ruff check .
+python -m ruff check . || exit 1
 
 echo "[pre-commit] Running black --check..."
-black --check .
+python -m black --check . || exit 1
 
 echo "[pre-commit] Running pytest..."
-pytest -q
+python -m pytest -q || exit 1
 
-echo "[pre-commit] OK"
+echo "[pre-commit] All checks passed!"
