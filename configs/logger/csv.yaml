@@ -1,0 +1,8 @@
+# @package _global_
+# CSV Logger 配置（默认，无需额外依赖）
+
+logger:
+  _target_: pytorch_lightning.loggers.CSVLogger
+  save_dir: ${hydra:runtime.output_dir}
+  name: ${run.name}
+  version: null

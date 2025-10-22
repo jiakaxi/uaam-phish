@@ -1,6 +1,6 @@
 # Code Review Sub-Agent Prompt
 
-> **用途:** 用于 AI 辅助代码审查的标准化 Prompt  
+> **用途:** 用于 AI 辅助代码审查的标准化 Prompt
 > **更新:** 2025-10-21
 
 ---
@@ -53,18 +53,18 @@ def process_url(url, max_length=128):
 def train_model(cfg: DictConfig, data: DataLoader) -> Dict[str, float]:
     """
     训练模型并返回指标
-    
+
     Args:
         cfg: 训练配置（包含 lr, epochs 等）
         data: 训练数据加载器
-    
+
     Returns:
         包含 loss, f1, auroc 的指标字典
-    
+
     Raises:
         ValueError: 如果配置无效
         RuntimeError: 如果训练失败
-    
+
     Example:
         >>> cfg = OmegaConf.load("config.yaml")
         >>> metrics = train_model(cfg, train_loader)
@@ -290,13 +290,13 @@ def process(data):
 def process_positive_numbers(data: List[float]) -> List[float]:
     """
     处理数值列表，将正数翻倍
-    
+
     Args:
         data: 输入数值列表
-    
+
     Returns:
         处理后的列表（只包含正数的2倍）
-    
+
     Example:
         >>> process_positive_numbers([1, -2, 3])
         [2, 6]
@@ -331,6 +331,5 @@ def test_process_positive_numbers():
 
 ---
 
-**维护者:** UAAM-Phish Team  
+**维护者:** UAAM-Phish Team
 **更新频率:** 随项目演进更新
-

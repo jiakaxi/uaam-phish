@@ -1,121 +1,85 @@
-from typing import Dict, Optional
+from __future__ import annotations
+
+from typing import Any, Dict, Tuple
+
+import pytorch_lightning as pl
 import torch
 import torch.nn as nn
-import pytorch_lightning as pl
-from torchmetrics.classification import BinaryF1Score, BinaryAUROC
-from src.models.url_encoder import UrlBertEncoder
+from omegaconf import OmegaConf
+
+from src.models.url_encoder import URLEncoder
 
 
-class UrlOnlySystem(pl.LightningModule):
-    def __init__(self, cfg):
+class UrlOnlyModule(pl.LightningModule):
+    """LightningModule wrapping a URLEncoder and a linear classifier."""
+
+    def __init__(self, cfg: Any) -> None:
         super().__init__()
-        self.save_hyperparameters(ignore=["cfg"])  # logs hparams
         self.cfg = cfg
-        self.encoder = UrlBertEncoder(cfg.model.pretrained_name, cfg.model.dropout)
-        hidden = self.encoder.config.hidden_size
-        self.head = nn.Sequential(
-            nn.Linear(hidden, hidden),
-            nn.ReLU(),
-            nn.Dropout(cfg.model.dropout),
-            nn.Linear(hidden, 1),
-        )
-        # register pos_weight as a buffer for device-safe loss creation
-        self.register_buffer(
-            "pos_weight", torch.tensor([cfg.train.pos_weight], dtype=torch.float32)
-        )
-        self.f1 = BinaryF1Score()
-        self.auroc = BinaryAUROC()
-        self._val_logits = []
-        self._val_y = []
+        try:
+            cfg_dict = OmegaConf.to_container(cfg, resolve=True)
+        except (AttributeError, TypeError):
+            cfg_dict = cfg
+        self.save_hyperparameters({"cfg": cfg_dict})
 
-    def forward(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
-        z = self.encoder(batch)  # [B,H]
-        logit = self.head(z).squeeze(1)  # [B]
-        return logit
+        model_cfg = cfg.model
+        self.encoder = URLEncoder(
+            vocab_size=model_cfg.vocab_size,
+            embedding_dim=model_cfg.embedding_dim,
+            hidden_dim=model_cfg.hidden_dim,
+            num_layers=model_cfg.num_layers,
+            bidirectional=model_cfg.bidirectional,
+            dropout=model_cfg.dropout,
+            pad_id=model_cfg.pad_id,
+            proj_dim=model_cfg.proj_dim,
+        )
+        self.classifier = nn.Linear(model_cfg.proj_dim, model_cfg.num_classes)
+        self.criterion = nn.CrossEntropyLoss()
 
-    def step(
-        self,
-        batch: Dict[str, torch.Tensor],
-        stage: str,
-        logit: Optional[torch.Tensor] = None,
-    ):
-        y = batch["label"].float()
-        if logit is None:
-            logit = self.forward(batch)
-        loss = nn.BCEWithLogitsLoss(pos_weight=self.pos_weight)(logit, y)
-        prob = torch.sigmoid(logit)
-        pred = (prob > 0.5).int()
-        # FPR = FP / (FP + TN)
-        tn = ((pred == 0) & (y == 0)).sum().float()
-        fp = ((pred == 1) & (y == 0)).sum().float()
-        fpr = fp / (fp + tn + 1e-9)
-        self.log_dict(
-            {
-                f"{stage}/loss": loss,
-                f"{stage}/f1": self.f1(pred, y.int()),
-                f"{stage}/auroc": self.auroc(prob, y.int()),
-                f"{stage}/fpr": fpr,
-            },
-            prog_bar=True,
-            on_step=(stage == "train"),
+    def forward(self, input_ids: torch.Tensor) -> torch.Tensor:
+        """Returns encoded representation z_url ∈ R^proj_dim."""
+        return self.encoder(input_ids)
+
+    def predict_logits(self, input_ids: torch.Tensor) -> torch.Tensor:
+        z = self.forward(input_ids)
+        return self.classifier(z)
+
+    def _shared_step(
+        self, batch: Tuple[torch.Tensor, torch.Tensor], stage: str
+    ) -> Dict[str, torch.Tensor]:
+        input_ids, labels = batch
+        logits = self.predict_logits(input_ids)
+        loss = self.criterion(logits, labels)
+        preds = logits.argmax(dim=1)
+        acc = (preds == labels).float().mean()
+
+        self.log(
+            f"{stage}_loss",
+            loss,
+            prog_bar=stage != "train",
+            on_step=False,
             on_epoch=True,
-            sync_dist=False,
         )
-        return loss
+        self.log(
+            f"{stage}_acc", acc, prog_bar=stage == "val", on_step=False, on_epoch=True
+        )
+        return {"loss": loss, "acc": acc, "logits": logits}
 
     def training_step(self, batch, batch_idx):
-        return self.step(batch, "train")
+        result = self._shared_step(batch, "train")
+        return result["loss"]
 
     def validation_step(self, batch, batch_idx):
-        logit = self.forward(batch)
-        self._val_logits.append(logit.detach().cpu())
-        self._val_y.append(batch["label"].float().detach().cpu())
-        return self.step(batch, "val", logit=logit)
+        result = self._shared_step(batch, "val")
+        return {"val_loss": result["loss"], "val_acc": result["acc"]}
 
     def test_step(self, batch, batch_idx):
-        logit = self.forward(batch)
-        loss = self.step(batch, "test", logit=logit)
-
-        # 返回预测结果用于可视化
-        y = batch["label"].float()
-        prob = torch.sigmoid(logit)
-
-        return {"y_true": y, "y_prob": prob, "loss": loss}
-
-    def on_validation_epoch_start(self):
-        self._val_logits = []
-        self._val_y = []
-
-    def on_validation_epoch_end(self):
-        import torch
-
-        logits = torch.cat(self._val_logits)
-        y = torch.cat(self._val_y).int()
-        prob = logits.sigmoid()
-        # epoch 级 FPR
-        pred05 = (prob > 0.5).int()
-        tn = ((pred05 == 0) & (y == 0)).sum().float()
-        fp = ((pred05 == 1) & (y == 0)).sum().float()
-        fpr = fp / (fp + tn + 1e-9)
-        self.log("val/fpr_epoch", fpr, prog_bar=True)
-
-        # 粗略阈值扫描(优化 F1)
-        ths = torch.linspace(0.2, 0.8, 25)
-        best_f1, best_th = -1.0, 0.5
-        for t in ths:
-            pred = (prob > t).int()
-            tp = ((pred == 1) & (y == 1)).sum().float()
-            fp = ((pred == 1) & (y == 0)).sum().float()
-            fn = ((pred == 0) & (y == 1)).sum().float()
-            f1 = (2 * tp) / (2 * tp + fp + fn + 1e-9)
-            if f1 > best_f1:
-                best_f1, best_th = f1.item(), t.item()
-        self.log("val/best_f1", best_f1, prog_bar=True)
-        self.log("val/best_threshold", best_th, prog_bar=True)
+        result = self._shared_step(batch, "test")
+        return {"test_loss": result["loss"], "test_acc": result["acc"]}
 
     def configure_optimizers(self):
-        return torch.optim.AdamW(
-            self.parameters(),
-            lr=self.cfg.train.lr,
-            weight_decay=getattr(self.cfg.train, "weight_decay", 0.0),
-        )
+        return torch.optim.AdamW(self.parameters(), lr=self.cfg.train.lr)
+
+
+# Backwards compatibility alias
+UrlOnlySystem = UrlOnlyModule

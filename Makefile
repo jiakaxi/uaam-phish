@@ -43,3 +43,14 @@ dvc-push:
 
 validate-data:
 	$(PY) scripts/validate_data_schema.py
+
+train-url:
+	python scripts/train_hydra.py
+
+predict-url:
+	python scripts/predict.py --config-path configs --config-name default \
+		--checkpoint experiments/url_only/checkpoints/url-only-best.ckpt \
+		--test data/processed/url_test.csv --out pred_url_test.csv
+
+test-url:
+	pytest tests/test_url_*.py -v

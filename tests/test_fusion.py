@@ -1,48 +1,54 @@
+from omegaconf import OmegaConf
 import torch
-import torch.nn as nn
-from types import SimpleNamespace
 
-from src.systems.url_only_module import UrlOnlySystem
+from src.systems.url_only_module import UrlOnlyModule
 
 
-def test_url_only_system_step(monkeypatch):
-    # Create minimal config
-    cfg = SimpleNamespace(
-        model=SimpleNamespace(
-            pretrained_name="prajjwal1/bert-tiny",
-            dropout=0.1,
-            cache_dir="tests/.cache",
-            local_files_only=True,
-        ),
-        train=SimpleNamespace(
-            lr=1e-3,
-            weight_decay=0.0,
-            pos_weight=1.0,
-        ),
+def _cfg():
+    return OmegaConf.create(
+        {
+            "seed": 123,
+            "data": {
+                "train_csv": "data/processed/url_train.csv",
+                "val_csv": "data/processed/url_val.csv",
+                "test_csv": "data/processed/url_test.csv",
+                "num_workers": 0,
+            },
+            "model": {
+                "vocab_size": 64,
+                "pad_id": 0,
+                "max_len": 16,
+                "embedding_dim": 8,
+                "hidden_dim": 8,
+                "num_layers": 1,
+                "bidirectional": True,
+                "dropout": 0.0,
+                "proj_dim": 16,
+                "num_classes": 2,
+            },
+            "train": {
+                "batch_size": 4,
+                "lr": 1e-3,
+                "epochs": 1,
+                "patience": 1,
+            },
+        }
     )
 
-    class DummyEncoder(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.config = SimpleNamespace(hidden_size=8)
 
-        def forward(self, batch):
-            batch_size = batch["input_ids"].size(0)
-            return torch.zeros(batch_size, self.config.hidden_size)
+def test_training_step_and_validation_step_logs_metrics():
+    cfg = _cfg()
+    module = UrlOnlyModule(cfg)
 
-    monkeypatch.setattr(
-        "src.systems.url_only_module.UrlBertEncoder",
-        lambda *args, **kwargs: DummyEncoder(),
+    batch_size = 4
+    input_ids = torch.randint(
+        0, cfg.model.vocab_size, (batch_size, cfg.model.max_len), dtype=torch.long
     )
+    labels = torch.randint(0, 2, (batch_size,), dtype=torch.long)
 
-    sys = UrlOnlySystem(cfg)
+    train_loss = module.training_step((input_ids, labels), 0)
+    assert torch.isfinite(train_loss)
 
-    # Create a simple batch (simulating tokenizer output)
-    batch = {
-        "input_ids": torch.randint(0, 1000, (2, 8)),
-        "attention_mask": torch.ones(2, 8, dtype=torch.long),
-        "label": torch.tensor([0.0, 1.0]),
-    }
-
-    loss = sys.step(batch, "train")
-    assert torch.isfinite(loss)
+    val_out = module.validation_step((input_ids, labels), 0)
+    assert "val_loss" in val_out
+    assert "val_acc" in val_out

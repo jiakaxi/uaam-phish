@@ -1,0 +1,4 @@
+- logger=wandb
+- trainer=local
+- run.name=wandb-test
+- train.epochs=1

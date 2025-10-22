@@ -11,6 +11,10 @@ from typing import Dict, Any, Optional
 import pandas as pd
 from omegaconf import OmegaConf, DictConfig
 
+from src.utils.logging import get_logger
+
+log = get_logger(__name__)
+
 
 class ExperimentTracker:
     """
@@ -70,13 +74,13 @@ class ExperimentTracker:
         self.logs_dir.mkdir(exist_ok=True)
         self.checkpoints_dir.mkdir(exist_ok=True)
 
-        print(f"✅ 实验目录已创建: {self.exp_dir}")
+        log.info(f"实验目录已创建: {self.exp_dir}")
 
     def _save_config(self):
         """保存实验配置"""
         config_path = self.exp_dir / "config.yaml"
         OmegaConf.save(self.cfg, config_path)
-        print(f"✅ 配置已保存: {config_path}")
+        log.info(f"配置已保存: {config_path}")
 
     def save_metrics(self, metrics: Dict[str, Any], stage: str = "final"):
         """
@@ -99,7 +103,7 @@ class ExperimentTracker:
         with open(metrics_file, "w", encoding="utf-8") as f:
             json.dump(metrics_with_meta, f, indent=2, ensure_ascii=False)
 
-        print(f"✅ 指标已保存: {metrics_file}")
+        log.info(f"指标已保存: {metrics_file}")
         return metrics_file
 
     def save_metrics_history(self, history_df: pd.DataFrame):
@@ -111,7 +115,7 @@ class ExperimentTracker:
         """
         history_file = self.logs_dir / "metrics_history.csv"
         history_df.to_csv(history_file, index=False)
-        print(f"✅ 训练历史已保存: {history_file}")
+        log.info(f"训练历史已保存: {history_file}")
         return history_file
 
     def save_figure(self, fig, name: str):
@@ -124,7 +128,7 @@ class ExperimentTracker:
         """
         fig_path = self.results_dir / f"{name}.png"
         fig.savefig(fig_path, dpi=300, bbox_inches="tight")
-        print(f"✅ 图表已保存: {fig_path}")
+        log.info(f"图表已保存: {fig_path}")
         return fig_path
 
     def copy_checkpoints(self, lightning_log_dir: Path):
@@ -143,7 +147,7 @@ class ExperimentTracker:
         for ckpt_file in src_ckpt_dir.glob("*.ckpt"):
             dst_file = self.checkpoints_dir / ckpt_file.name
             shutil.copy2(ckpt_file, dst_file)
-            print(f"✅ 检查点已复制: {dst_file}")
+            log.info(f"检查点已复制: {dst_file}")
 
     def log_text(self, text: str, filename: str = "train.log", append: bool = True):
         """
@@ -175,11 +179,23 @@ class ExperimentTracker:
             f.write(f"**时间:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
 
             f.write("## 配置\n")
-            f.write(f"- **模型:** {self.cfg.model.pretrained_name}\n")
-            f.write(f"- **最大长度:** {self.cfg.data.max_length}\n")
-            f.write(f"- **批量大小:** {self.cfg.train.bs}\n")
-            f.write(f"- **学习率:** {self.cfg.train.lr}\n")
-            f.write(f"- **训练轮数:** {self.cfg.train.epochs}\n\n")
+            model_name = getattr(self.cfg.model, "pretrained_name", "URLEncoder")
+            f.write(f"- **模型:** {model_name}\n")
+
+            # 安全获取配置值
+            max_len = getattr(
+                self.cfg.model, "max_len", getattr(self.cfg.data, "max_length", "N/A")
+            )
+            batch_size = getattr(
+                self.cfg.train, "bs", getattr(self.cfg.train, "batch_size", "N/A")
+            )
+            lr = self.cfg.train.lr
+            epochs = self.cfg.train.epochs
+
+            f.write(f"- **最大长度:** {max_len}\n")
+            f.write(f"- **批量大小:** {batch_size}\n")
+            f.write(f"- **学习率:** {lr}\n")
+            f.write(f"- **训练轮数:** {epochs}\n\n")
 
             f.write("## 结果\n")
             for key, value in summary.items():
@@ -188,7 +204,7 @@ class ExperimentTracker:
                 else:
                     f.write(f"- **{key}:** {value}\n")
 
-        print(f"✅ 总结已保存: {summary_file}")
+        log.info(f"总结已保存: {summary_file}")
         return summary_file
 
     def get_latest_checkpoint(self) -> Optional[Path]:

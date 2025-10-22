@@ -1,63 +1,57 @@
-from types import SimpleNamespace
-
+from omegaconf import OmegaConf
 import pandas as pd
 import torch
 
 from src.datamodules.url_datamodule import UrlDataModule
 
 
-def test_datamodule_smoke(tmp_path, monkeypatch):
-    # Create tiny CSVs
-    df = pd.DataFrame({"url_text": ["a.com", "b.com"], "label": [0, 1]})
+def _build_cfg(train_csv: str, val_csv: str, test_csv: str):
+    return OmegaConf.create(
+        {
+            "seed": 42,
+            "data": {
+                "train_csv": train_csv,
+                "val_csv": val_csv,
+                "test_csv": test_csv,
+                "num_workers": 0,
+            },
+            "model": {
+                "vocab_size": 128,
+                "pad_id": 0,
+                "max_len": 32,
+                "embedding_dim": 16,
+                "hidden_dim": 8,
+                "num_layers": 1,
+                "bidirectional": True,
+                "dropout": 0.0,
+                "proj_dim": 16,
+                "num_classes": 2,
+            },
+            "train": {
+                "batch_size": 2,
+                "lr": 1e-3,
+                "epochs": 1,
+                "patience": 1,
+            },
+        }
+    )
+
+
+def test_datamodule_returns_padded_batches(tmp_path):
+    df = pd.DataFrame({"url_text": ["abc", "xyz"], "label": [0, 1]})
     train_csv = tmp_path / "train.csv"
     val_csv = tmp_path / "val.csv"
     df.to_csv(train_csv, index=False)
     df.to_csv(val_csv, index=False)
 
-    cache_dir = tmp_path / "hf-cache"
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
-    # Create minimal config
-    cfg = SimpleNamespace(
-        paths=SimpleNamespace(
-            train_index=str(train_csv),
-            val_index=str(val_csv),
-            test_index=str(val_csv),
-        ),
-        data=SimpleNamespace(
-            text_col="url_text",
-            label_col="label",
-            max_length=8,
-            sample_fraction=1.0,
-        ),
-        model=SimpleNamespace(
-            pretrained_name="prajjwal1/bert-tiny",
-            cache_dir=str(cache_dir),
-            local_files_only=True,
-        ),
-        train=SimpleNamespace(
-            bs=2,
-            seed=1,
-        ),
-        hardware=SimpleNamespace(
-            num_workers=0,
-        ),
-    )
-
-    class DummyTokenizer:
-        def __call__(self, text, padding, truncation, max_length, return_tensors):
-            token_ids = torch.arange(max_length, dtype=torch.long).unsqueeze(0)
-            return {
-                "input_ids": token_ids,
-                "attention_mask": torch.ones_like(token_ids),
-            }
-
-    monkeypatch.setattr(
-        "src.datamodules.url_datamodule.AutoTokenizer.from_pretrained",
-        lambda *args, **kwargs: DummyTokenizer(),
-    )
-
+    cfg = _build_cfg(str(train_csv), str(val_csv), str(val_csv))
     dm = UrlDataModule(cfg)
-    dm.setup(stage="fit")
+    dm.setup("fit")
+
     batch = next(iter(dm.train_dataloader()))
-    assert "input_ids" in batch and "label" in batch
+    inputs, labels = batch
+    assert inputs.shape == (2, 32)
+    assert inputs.dtype == torch.long
+    # Labels may be shuffled, so check they contain both 0 and 1
+    assert set(labels.tolist()) == {0, 1}
+    assert torch.all(inputs[:, -1] == torch.tensor([0, 0]))

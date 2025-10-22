@@ -1,0 +1,31 @@
+# @package _global_
+# Hydra 主配置文件
+
+defaults:
+  - model: url_encoder
+  - data: url_only
+  - trainer: default
+  - logger: csv  # 可选: wandb, tensorboard, csv
+  - _self_
+  - override hydra/hydra_logging: default
+  - override hydra/job_logging: default
+
+# 运行配置
+run:
+  name: url_mvp
+  seed: 42
+
+# 路径配置
+paths:
+  data_root: ${oc.env:DATA_ROOT,data/processed}
+  train_index: ${paths.data_root}/train.csv
+  val_index: ${paths.data_root}/val.csv
+  test_index: ${paths.data_root}/test.csv
+
+# Hydra 运行时配置
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}

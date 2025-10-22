@@ -28,7 +28,8 @@ class ExperimentResultsCallback(Callback):
         """训练开始时记录"""
         self.tracker.log_text("=" * 60)
         self.tracker.log_text("训练开始")
-        self.tracker.log_text(f"模型: {self.tracker.cfg.model.pretrained_name}")
+        model_name = getattr(self.tracker.cfg.model, "pretrained_name", "URLEncoder")
+        self.tracker.log_text(f"模型: {model_name}")
         self.tracker.log_text(f"总轮数: {self.tracker.cfg.train.epochs}")
         self.tracker.log_text("=" * 60)
 
@@ -99,10 +100,18 @@ class ExperimentResultsCallback(Callback):
 
         # 生成实验总结
         summary = {
-            "final_test_loss": final_metrics.get("test/loss", "N/A"),
-            "final_test_f1": final_metrics.get("test/f1", "N/A"),
-            "final_test_auroc": final_metrics.get("test/auroc", "N/A"),
-            "final_test_fpr": final_metrics.get("test/fpr", "N/A"),
+            "final_test_loss": final_metrics.get(
+                "test_loss", final_metrics.get("test/loss", "N/A")
+            ),
+            "final_test_acc": final_metrics.get(
+                "test_acc", final_metrics.get("test/acc", "N/A")
+            ),
+            "final_test_f1": final_metrics.get(
+                "test_f1", final_metrics.get("test/f1", "N/A")
+            ),
+            "final_test_auroc": final_metrics.get(
+                "test_auroc", final_metrics.get("test/auroc", "N/A")
+            ),
             "total_epochs": trainer.current_epoch + 1,
         }
 

@@ -1,6 +1,6 @@
 # UAAM-Phish 项目根目录结构说明
 
-> **Last Updated:** 2025-10-21  
+> **Last Updated:** 2025-10-21
 > **版本:** 0.1 (MVP - URL-only 阶段)
 
 本文档详细描述了 UAAM-Phish 项目的完整目录结构、每个文件/目录的用途及其在项目中的角色。
@@ -22,12 +22,12 @@ UAAM-Phish 是一个基于深度学习的钓鱼网站检测系统，使用 URL�
 ## 📂 根目录文件
 
 ### `.gitignore`
-**用途:** Git 版本控制忽略规则  
+**用途:** Git 版本控制忽略规则
 **内容:** 定义不需要纳入版本控制的文件和目录（缓存文件、数据文件、日志、模型检查点等）
 
 ### `README.md`
-**用途:** 项目主文档  
-**内容:** 
+**用途:** 项目主文档
+**内容:**
 - 项目简介和技术栈说明
 - 安装步骤
 - 数据准备指南
@@ -35,7 +35,7 @@ UAAM-Phish 是一个基于深度学习的钓鱼网站检测系统，使用 URL�
 - 下一步计划
 
 ### `requirements.txt`
-**用途:** Python 依赖包列表  
+**用途:** Python 依赖包列表
 **内容:** 指定项目所需的 Python 包及其版本
 ```
 torch>=2.2
@@ -49,19 +49,19 @@ omegaconf>=2.3
 ```
 
 ### `environment.yml`
-**用途:** Conda 环境配置文件（待填充）  
+**用途:** Conda 环境配置文件（待填充）
 **状态:** 占位符，用于未来的 Conda 环境管理
 
 ### `setup.py`
-**用途:** Python 包安装配置  
-**功能:** 
+**用途:** Python 包安装配置
+**功能:**
 - 定义包名称 `uaam-phish`
 - 自动发现 src/ 下的所有 Python 包
 - 声明核心依赖
 
 ### `Makefile`
-**用途:** 项目自动化命令（待填充）  
-**计划功能:** 
+**用途:** 项目自动化命令（待填充）
+**计划功能:**
 - 环境设置
 - 数据预处理
 - 模型训练
@@ -69,7 +69,7 @@ omegaconf>=2.3
 - 代码质量检查
 
 ### `check_overlap.py`
-**用途:** 数据集重叠检查工具  
+**用途:** 数据集重叠检查工具
 **功能:** 检查 train/val/test 数据集之间是否存在 URL 重叠，确保数据划分的有效性
 
 ---
@@ -79,7 +79,7 @@ omegaconf>=2.3
 项目使用 OmegaConf 进行分层配置管理，支持配置合并和环境变量替换。
 
 ### `configs/default.yaml`
-**用途:** 主配置文件，定义所有默认参数  
+**用途:** 主配置文件，定义所有默认参数
 **包含:**
 - **model:** 模型配置（预训练模型名称、dropout）
 - **paths:** 数据路径（支持 `DATA_ROOT` 环境变量）
@@ -89,7 +89,7 @@ omegaconf>=2.3
 - **eval:** 评估参数（监控指标、早停耐心值）
 
 ### `configs/profiles/local.yaml`
-**用途:** 本地开发环境配置  
+**用途:** 本地开发环境配置
 **特点:**
 - CPU 模式
 - 小批量大小 (bs=4)
@@ -97,7 +97,7 @@ omegaconf>=2.3
 - 适合快速迭代和调试
 
 ### `configs/profiles/server.yaml`
-**用途:** 服务器/GPU 环境配置  
+**用途:** 服务器/GPU 环境配置
 **特点:**
 - GPU 加速
 - 混合精度训练 (16-mixed)
@@ -125,7 +125,7 @@ omegaconf>=2.3
 ## 📂 `data/` - 数据目录
 
 ### `data/raw/`
-**用途:** 原始数据存储  
+**用途:** 原始数据存储
 **内容:**
 - `dataset/` - 良性网站数据集目录
 - `fish_dataset/` - 钓鱼网站数据集目录
@@ -140,7 +140,7 @@ omegaconf>=2.3
 - `shot.png` - 网页截图
 
 ### `data/processed/`
-**用途:** 处理后的训练数据  
+**用途:** 处理后的训练数据
 **文件:**
 - `master.csv` - 主数据表，包含所有样本的完整信息
   - 列: `id`, `stem`, `label`, `url_text`, `html_path`, `img_path`, `domain`, `source`, `split`
@@ -153,7 +153,7 @@ omegaconf>=2.3
 ## 📂 `scripts/` - 可执行脚本
 
 ### `scripts/build_master_and_splits.py`
-**用途:** 从原始数据构建主数据表和训练/验证/测试划分  
+**用途:** 从原始数据构建主数据表和训练/验证/测试划分
 **功能:**
 - 扫描 `data/raw/` 下的数据集目录
 - 提取 URL、HTML 路径、图片路径
@@ -171,12 +171,12 @@ python scripts/build_master_and_splits.py \
 ```
 
 ### `scripts/preprocess.py`
-**用途:** 简单的数据预处理脚本  
-**功能:** 从单个 CSV 文件进行随机划分（不考虑域名分组）  
+**用途:** 简单的数据预处理脚本
+**功能:** 从单个 CSV 文件进行随机划分（不考虑域名分组）
 **适用场景:** 快速测试和简单数据集
 
 ### `scripts/train.py`
-**用途:** 模型训练主脚本  
+**用途:** 模型训练主脚本
 **功能:**
 1. 加载配置（支持 `--profile` 参数选择环境配置）
 2. 设置随机种子
@@ -238,7 +238,7 @@ python scripts/train.py --profile server
 ### `src/utils/` - 工具函数
 
 #### `src/utils/seed.py`
-**用途:** 随机种子设置工具  
+**用途:** 随机种子设置工具
 **功能:** 确保 Python、NumPy、PyTorch 等库的随机性可复现
 
 ### `src/data/` *(新增目录)*
@@ -440,7 +440,7 @@ lightning_logs/
 - `hparams.yaml` 记录训练时的超参数配置
 - `metrics.csv` 记录每个 epoch 的指标（loss, F1, AUROC, FPR 等）
 
-**注意:** 
+**注意:**
 - 此目录的内容会被自动复制到 `experiments/` 目录
 - 已在 `.gitignore` 中，不会被纳入版本控制
 - 可以定期清理，重要内容已保存在 `experiments/`
@@ -529,8 +529,8 @@ python scripts/train.py --profile server
 
 ## 📊 项目状态
 
-**当前版本:** MVP (Milestone 1)  
-**状态:** ✅ 可运行  
+**当前版本:** MVP (Milestone 1)
+**状态:** ✅ 可运行
 **最后更新:** 2025-10-21
 
 ### 已完成功能
@@ -548,6 +548,5 @@ python scripts/train.py --profile server
 
 ---
 
-**维护者:** UAAM-Phish Team  
+**维护者:** UAAM-Phish Team
 **联系方式:** [项目 GitHub Issues]
-

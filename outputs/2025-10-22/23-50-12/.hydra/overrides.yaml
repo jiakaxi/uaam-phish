@@ -1,0 +1,3 @@
+- logger=wandb
+- trainer=local
+- run.name=wandb-test

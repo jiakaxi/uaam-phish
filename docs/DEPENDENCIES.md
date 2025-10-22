@@ -1,6 +1,6 @@
 # 项目依赖说明
 
-> **Last Updated:** 2025-10-21  
+> **Last Updated:** 2025-10-21
 > **版本:** 0.1.0
 
 本文档详细说明了 UAAM-Phish 项目的所有依赖包及其用途。
@@ -31,7 +31,7 @@
 
 #### PyTorch Lightning >= 2.3
 - **用途:** PyTorch 高级封装，简化训练流程
-- **为什么:** 
+- **为什么:**
   - 减少样板代码
   - 自动化分布式训练
   - 统一的训练/验证/测试接口
@@ -47,7 +47,7 @@
 
 #### Transformers >= 4.41
 - **用途:** Hugging Face 预训练模型库
-- **为什么:** 
+- **为什么:**
   - 提供 BERT、RoBERTa 等预训练模型
   - 统一的 tokenizer 接口
   - 简化模型加载和微调
@@ -59,7 +59,7 @@
 
 #### TorchMetrics >= 1.0
 - **用途:** PyTorch 评估指标库
-- **为什么:** 
+- **为什么:**
   - 自动处理分布式计算
   - 与 Lightning 无缝集成
   - 准确性经过验证
@@ -99,7 +99,7 @@
 
 #### tldextract >= 3.4
 - **用途:** 提取 URL 的域名、子域名和顶级域名
-- **为什么:** 
+- **为什么:**
   - 比 `urlparse` 更智能
   - 处理复杂的国际域名
   - 用于域名分组（domain-aware splitting）
@@ -142,7 +142,7 @@
 #### Matplotlib >= 3.7
 - **用途:** 基础绘图库
 - **安装:** `pip install -e ".[viz]"`
-- **计划用途:** 
+- **计划用途:**
   - 训练曲线可视化
   - 混淆矩阵绘制
   - ROC 曲线绘制
@@ -319,20 +319,20 @@ uaam-phish/
 
 ### 安装失败
 
-**问题:** `pip install torch` 很慢或失败  
+**问题:** `pip install torch` 很慢或失败
 **解决:** 使用清华镜像源
 ```bash
 pip install torch -i https://pypi.tuna.tsinghua.edu.cn/simple
 ```
 
-**问题:** Conda 解析环境很慢  
+**问题:** Conda 解析环境很慢
 **解决:** 使用 mamba
 ```bash
 conda install mamba -c conda-forge
 mamba env create -f environment.yml
 ```
 
-**问题:** 找不到 CUDA  
+**问题:** 找不到 CUDA
 **解决:** 确认 CUDA 版本与 PyTorch 版本匹配
 ```bash
 nvcc --version  # 查看 CUDA 版本
@@ -341,7 +341,7 @@ python -c "import torch; print(torch.cuda.is_available())"
 
 ### 版本冲突
 
-**问题:** 依赖版本冲突  
+**问题:** 依赖版本冲突
 **解决:** 使用虚拟环境隔离
 ```bash
 # 删除旧环境
@@ -361,7 +361,6 @@ conda env create -f environment.yml
 
 ---
 
-**维护者:** UAAM-Phish Team  
-**更新频率:** 每月检查更新  
+**维护者:** UAAM-Phish Team
+**更新频率:** 每月检查更新
 **最后检查:** 2025-10-21
-

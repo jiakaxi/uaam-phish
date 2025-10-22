@@ -1,0 +1,19 @@
+# @package _global_
+# 服务器/GPU 训练配置
+
+defaults:
+  - default
+
+hardware:
+  accelerator: gpu
+  devices: 1
+  precision: 16-mixed
+  num_workers: 8
+  strategy: auto  # 多GPU时改为 ddp
+
+train:
+  bs: 32
+  epochs: 10
+
+eval:
+  bs: 64

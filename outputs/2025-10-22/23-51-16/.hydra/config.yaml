@@ -1,0 +1,52 @@
+model:
+  _target_: src.models.url_encoder.URLEncoder
+  vocab_size: 128
+  embedding_dim: 128
+  hidden_dim: 128
+  num_layers: 2
+  bidirectional: true
+  dropout: 0.1
+  pad_id: 0
+  proj_dim: 256
+  max_len: 256
+  num_classes: 2
+data:
+  train_csv: ${oc.env:DATA_ROOT,data/processed}/train.csv
+  val_csv: ${oc.env:DATA_ROOT,data/processed}/val.csv
+  test_csv: ${oc.env:DATA_ROOT,data/processed}/test.csv
+  text_col: url_text
+  label_col: label
+  sample_fraction: 1.0
+hardware:
+  accelerator: cpu
+  devices: 1
+  precision: 32
+  num_workers: 0
+train:
+  epochs: 1
+  lr: 0.001
+  bs: 4
+  log_every: 50
+  weight_decay: 1.0e-05
+eval:
+  bs: 64
+  monitor: val_loss
+  patience: 5
+logger:
+  _target_: pytorch_lightning.loggers.WandbLogger
+  project: ${oc.env:WANDB_PROJECT,uaam-phish}
+  name: ${run.name}
+  save_dir: ${hydra:runtime.output_dir}
+  offline: false
+  log_model: false
+  tags: ${oc.env:WANDB_TAGS,null}
+  notes: null
+  entity: ${oc.env:WANDB_ENTITY,null}
+run:
+  name: wandb-test
+  seed: 42
+paths:
+  data_root: ${oc.env:DATA_ROOT,data/processed}
+  train_index: ${paths.data_root}/train.csv
+  val_index: ${paths.data_root}/val.csv
+  test_index: ${paths.data_root}/test.csv

@@ -1,0 +1,17 @@
+# @package _global_
+# 本地开发环境配置
+
+defaults:
+  - default
+
+hardware:
+  accelerator: cpu
+  devices: 1
+  precision: 32
+  num_workers: 0
+
+train:
+  bs: 4
+
+data:
+  sample_fraction: 1.0

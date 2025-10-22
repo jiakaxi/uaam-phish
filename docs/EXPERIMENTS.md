@@ -1,6 +1,6 @@
 # 实验管理指南
 
-> **Last Updated:** 2025-10-21  
+> **Last Updated:** 2025-10-21
 > **版本:** 0.1.0
 
 本文档说明如何使用项目的实验管理系统进行有组织的实验跟踪和结果保存。
@@ -118,26 +118,26 @@ python scripts/train.py --profile local --no_save
 
 ### 4. **混淆矩阵** (`confusion_matrix.png`)
 - **保存时机:** 测试完成后立即生成
-- **内容:** 
+- **内容:**
   - 2x2 混淆矩阵热力图
   - 准确率、精确率、召回率、F1
 
 ### 5. **ROC 曲线** (`roc_curve.png`)
 - **保存时机:** 测试完成后立即生成
-- **内容:** 
+- **内容:**
   - ROC 曲线
   - AUC 值
   - 随机分类器基线
 
 ### 6. **阈值分析** (`threshold_analysis.png`)
 - **保存时机:** 测试完成后立即生成
-- **内容:** 
+- **内容:**
   - Precision/Recall/F1 vs Threshold
   - 最佳 F1 阈值标记
 
 ### 7. **训练日志** (`train.log`)
 - **保存时机:** 训练过程中实时记录
-- **内容:** 
+- **内容:**
   - 每个 epoch 的指标
   - 训练开始/结束时间
   ```
@@ -155,16 +155,16 @@ python scripts/train.py --profile local --no_save
 - **内容:** Markdown 格式的实验总结
   ```markdown
   # 实验总结: url_mvp_20251021_143022
-  
+
   **时间:** 2025-10-21 14:35:42
-  
+
   ## 配置
   - **模型:** roberta-base
   - **最大长度:** 256
   - **批量大小:** 16
   - **学习率:** 2e-05
   - **训练轮数:** 5
-  
+
   ## 结果
   - **final_test_loss:** 0.1234
   - **final_test_f1:** 0.9567
@@ -259,7 +259,7 @@ def compare_experiments(exp_names):
     for exp in exp_names:
         exp_dir = Path(f"experiments/{exp}")
         metrics_file = exp_dir / "results/metrics_final.json"
-        
+
         if metrics_file.exists():
             with open(metrics_file) as f:
                 data = json.load(f)
@@ -267,7 +267,7 @@ def compare_experiments(exp_names):
                     'experiment': exp,
                     **data['metrics']
                 })
-    
+
     df = pd.DataFrame(results)
     print(df.to_string(index=False))
     return df
@@ -340,7 +340,7 @@ class CustomMetricsCallback(Callback):
     def __init__(self, tracker):
         super().__init__()
         self.tracker = tracker
-        
+
     def on_epoch_end(self, trainer, pl_module):
         # 保存每个 epoch 的额外指标
         custom_data = {
@@ -364,7 +364,7 @@ import numpy as np
 # 1. 绘制训练曲线
 metrics_csv = Path("lightning_logs/version_0/metrics.csv")
 ResultVisualizer.plot_training_curves(
-    metrics_csv, 
+    metrics_csv,
     save_path="my_curves.png"
 )
 
@@ -464,22 +464,165 @@ python scripts/train.py --profile local
 
 ---
 
-**维护者:** UAAM-Phish Team  
-**更新频率:** 每次添加新功能时更新  
+**维护者:** UAAM-Phish Team
+**更新频率:** 每次添加新功能时更新
 **最后检查:** 2025-10-21
 
-# EXPERIMENTS
+# URL-Only 基线实验
 
-## Template
-| ID | Config | Data Split | Metrics | Notes | Artifact |
-|----|--------|------------|---------|-------|----------|
-| EXP-001 | configs/train.yaml | Random | F1/AUROC/ECE/NLL | MVP URL-only | ckpt v0.1 |
+## 🎯 实验目标
 
-## Logging
-- 运行前记录：git commit/tag、configs diff
-- 运行后记录：主要指标、曲线截图、最佳阈值
+建立字符级 BiLSTM URL 编码器基线，用于后续多模态融合对比。
 
-## Repro Steps
-- `git checkout <tag>`
-- `dvc pull`
-- `python scripts/train.py --profile server --config configs/train.yaml`
+---
+
+## 📊 数据切分
+
+基于 `data/processed/url_*.csv`：
+
+| 数据集 | 样本数 | 正负比例 | 路径 |
+|--------|--------|----------|------|
+| 训练集 | ~470 | ~1:1 | `data/processed/url_train.csv` |
+| 验证集 | ~101 | ~1:1 | `data/processed/url_val.csv` |
+| 测试集 | ~101 | ~1:1 | `data/processed/url_test.csv` |
+
+**说明：**
+- 字段：`url_text`, `label`（0=legitimate, 1=phishing）
+- 切分方式：随机划分（seed=42）
+- 与论文 4.6.3 节对齐
+
+---
+
+## 🏗️ 模型架构
+
+**URLEncoder (字符级 BiLSTM)**
+
+```
+输入: URL 字符序列 (max_len=256, vocab_size=128)
+  ↓
+Embedding(128, embedding_dim=128)
+  ↓
+Dropout(0.1)
+  ↓
+BiLSTM(hidden_dim=128, num_layers=2, bidirectional=True)
+  ↓
+Concat[forward_last, backward_last] → (batch, 256)
+  ↓
+Dropout(0.1)
+  ↓
+Linear(256, proj_dim=256)
+  ↓
+Classifier: Linear(256, 2) → [legitimate_prob, phishing_prob]
+```
+
+**参数配置：** `configs/model/url_encoder.yaml`
+
+---
+
+## 🚀 运行实验
+
+### 训练
+
+```bash
+# 使用默认配置
+make train-url
+# 或
+python scripts/train_hydra.py
+
+# 使用本地配置（快速调试）
+python scripts/train_hydra.py trainer=local
+
+# 自定义超参数
+python scripts/train_hydra.py train.lr=1e-3 train.bs=32 model.dropout=0.2
+```
+
+### 预测
+
+```bash
+# 单条 URL
+python scripts/predict.py \
+  --config-path configs --config-name default \
+  --checkpoint experiments/url_only/checkpoints/url-only-best.ckpt \
+  --url "http://example.com"
+# 输出: [0.998, 0.002]  # [legit_prob, phish_prob]
+
+# 批量预测
+make predict-url
+# 输出: pred_url_test.csv (列: idx, label, legit_prob, phish_prob)
+```
+
+### 测试
+
+```bash
+make test-url
+# 或
+pytest tests/test_url_dataset.py tests/test_url_encoder.py -v
+```
+
+---
+
+## 📈 预期基线指标
+
+基于论文 4.6.3 节和初步实验：
+
+| 指标 | 预期范围 | 说明 |
+|------|---------|------|
+| **Accuracy** | 85-90% | 整体准确率 |
+| **F1-Score** | 85-90% | 平衡精确率与召回率 |
+| **AUROC** | 0.90-0.95 | 判别能力 |
+| **val_loss** | 0.2-0.4 | 交叉熵损失 |
+
+**注意：** 实际结果可能因数据分布、随机种子等因素有所波动。
+
+---
+
+## 📝 实验记录模板
+
+| ID | 时间戳 | Config | Seed | Val Loss | Test Acc | Test F1 | AUROC | Notes | Artifact |
+|----|--------|--------|------|----------|----------|---------|-------|-------|----------|
+| EXP-001 | 2025-10-22 | default.yaml | 42 | 0.35 | 0.88 | 0.87 | 0.92 | 初始基线 | url-only-best.ckpt |
+
+---
+
+## 🔄 复现步骤
+
+```bash
+# 1. 检出代码
+git checkout <commit-hash>
+
+# 2. 安装依赖
+pip install -r requirements.txt
+
+# 3. 验证数据
+python scripts/validate_data_schema.py
+
+# 4. 训练
+python scripts/train_hydra.py
+
+# 5. 测试
+make test-url
+```
+
+---
+
+## 🧪 消融实验建议
+
+1. **编码维度:** `proj_dim=128/256/512`
+2. **LSTM层数:** `num_layers=1/2/3`
+3. **Dropout比例:** `dropout=0.1/0.2/0.3`
+4. **学习率:** `lr=1e-4/1e-3/5e-3`
+5. **批量大小:** `batch_size=16/32/64`
+
+---
+
+## 📚 相关文档
+
+- [数据 Schema](DATA_SCHEMA.md)
+- [实验系统功能](EXPERIMENT_SYSTEM_FEATURES.md)
+- [快速开始](../QUICKSTART.md)
+- [架构说明](PROJECT_ARCHITECTURE_CN.md)
+
+---
+
+**维护者:** UAAM-Phish Team
+**最后更新:** 2025-10-22

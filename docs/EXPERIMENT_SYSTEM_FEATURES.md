@@ -1,6 +1,6 @@
 # 实验管理系统功能清单
 
-> **系统版本:** 1.0  
+> **系统版本:** 1.0
 > **更新日期:** 2025-10-21
 
 本文档总结了项目实验管理系统的所有功能和特性。
@@ -269,7 +269,7 @@ python scripts/compare_experiments.py \
    ```bash
    # 找到最佳实验
    python scripts/compare_experiments.py --find_best
-   
+
    # 复制到专门目录
    cp -r experiments/best_exp/ saved_models/production_v1/
    ```
@@ -336,12 +336,11 @@ python scripts/compare_experiments.py \
 
 ---
 
-**系统状态:** ✅ 稳定运行  
-**测试覆盖:** 手动测试通过  
+**系统状态:** ✅ 稳定运行
+**测试覆盖:** 手动测试通过
 **文档完整性:** ✅ 完整
 
 开始使用实验管理系统：
 ```bash
 python scripts/train.py --profile local --exp_name my_first_experiment
 ```
-

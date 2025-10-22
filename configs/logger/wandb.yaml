@@ -1,0 +1,15 @@
+# @package _global_
+# WandB Logger 配置
+
+logger:
+  _target_: pytorch_lightning.loggers.WandbLogger
+  project: ${oc.env:WANDB_PROJECT,uaam-phish}
+  name: ${run.name}
+  save_dir: ${hydra:runtime.output_dir}
+  offline: false
+  log_model: false  # 是否上传模型检查点
+
+  # 可选配置
+  tags: ${oc.env:WANDB_TAGS,null}
+  notes: null
+  entity: ${oc.env:WANDB_ENTITY,null}  # WandB team/username

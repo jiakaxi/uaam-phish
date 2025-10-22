@@ -75,6 +75,23 @@ function Validate-Data {
     python scripts\validate_data_schema.py
 }
 
+function Train-Url {
+    Write-Host "Training URL-only model..." -ForegroundColor Cyan
+    python scripts\train_hydra.py
+}
+
+function Predict-Url {
+    Write-Host "Predicting with URL-only model..." -ForegroundColor Cyan
+    python scripts\predict.py --config-path configs --config-name default `
+        --checkpoint experiments\url_only\checkpoints\url-only-best.ckpt `
+        --test data\processed\url_test.csv --out pred_url_test.csv
+}
+
+function Test-Url {
+    Write-Host "Testing URL-only components..." -ForegroundColor Cyan
+    python -m pytest tests\test_url_dataset.py tests\test_url_encoder.py -v
+}
+
 function Show-Help {
     Write-Host @"
 PowerShell Makefile for Windows
@@ -90,6 +107,9 @@ Available commands:
   dvc-track       Track data with DVC
   dvc-push        Push DVC data
   validate-data   Validate data schema
+  train-url       Train URL-only model
+  predict-url     Predict with URL-only model
+  test-url        Test URL-only components
   help            Show this help message
 
 Usage:
@@ -113,6 +133,9 @@ switch ($Command.ToLower()) {
     "dvc-track"     { Dvc-Track }
     "dvc-push"      { Dvc-Push }
     "validate-data" { Validate-Data }
+    "train-url"     { Train-Url }
+    "predict-url"   { Predict-Url }
+    "test-url"      { Test-Url }
     "help"          { Show-Help }
     default {
         Write-Host "Unknown command: $Command" -ForegroundColor Red
@@ -120,4 +143,3 @@ switch ($Command.ToLower()) {
         exit 1
     }
 }
-

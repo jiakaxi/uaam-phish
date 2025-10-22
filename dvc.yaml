@@ -8,3 +8,16 @@ stages:
     outs:
       - data/processed:
           persist: true
+  url_train:
+    cmd: python scripts/train.py --config-path configs --config-name default.yaml
+    deps:
+      - configs/default.yaml
+      - data/processed/url_train.csv
+      - data/processed/url_val.csv
+      - src/data/url_dataset.py
+      - src/datamodules/url_datamodule.py
+      - src/models/url_encoder.py
+      - src/systems/url_only_module.py
+      - scripts/train.py
+    outs:
+      - experiments/url_only/checkpoints/url-only-best.ckpt

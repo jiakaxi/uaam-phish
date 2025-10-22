@@ -31,4 +31,3 @@ echo "现在每次 commit 前会自动运行:"
 echo "  - ruff check (代码检查)"
 echo "  - black --check (格式检查)"
 echo "  - pytest (运行测试)"
-

@@ -329,4 +329,3 @@ A: 检查点文件较大，可以：
 ```bash
 python scripts/train.py --profile local --exp_name my_first_exp
 ```
-

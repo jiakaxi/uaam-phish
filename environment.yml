@@ -11,19 +11,19 @@ dependencies:
   # 深度学习框架 (从 PyTorch 官方渠道安装)
   - pytorch>=2.2
   - pytorch-cuda=12.1  # 根据您的 CUDA 版本调整，CPU 版本可删除此行
-  
+
   # 核心依赖
   - pip
   - numpy>=1.26
   - pandas>=2.1
   - scikit-learn>=1.4
-  
+
   # 可选：科学计算和可视化
   - matplotlib>=3.7
   - seaborn>=0.12
   - jupyter
   - ipykernel
-  
+
   # 通过 pip 安装的包
   - pip:
       - pytorch-lightning>=2.3
@@ -32,4 +32,3 @@ dependencies:
       - tldextract>=3.4
       - omegaconf>=2.3
       - tqdm>=4.65
-

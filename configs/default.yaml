@@ -1,41 +1,30 @@
-model:
-  pretrained_name: roberta-base
-  dropout: 0.2
-  cache_dir: ${oc.env:HF_CACHE_DIR, null}
-  local_files_only: ${oc.env:HF_LOCAL_ONLY, false}
-
-
-run:
-  name: url_mvp
-
-paths:
-  data_root: ${oc.env:DATA_ROOT, data/processed}
-  train_index: ${paths.data_root}/train.csv
-  val_index:   ${paths.data_root}/val.csv
-  test_index:  ${paths.data_root}/test.csv
-
-hardware:
-  accelerator: auto
-  devices: auto
-  precision: 32
-  num_workers: 4
+seed: 42
 
 data:
-  text_col: url_text
-  label_col: label
-  max_length: 256
-  sample_fraction: 1.0
+  train_csv: data/processed/url_train.csv
+  val_csv: data/processed/url_val.csv
+  test_csv: data/processed/url_test.csv
+  num_workers: 2
+
+model:
+  vocab_size: 128
+  pad_id: 0
+  max_len: 256
+  embedding_dim: 128
+  hidden_dim: 128
+  num_layers: 2
+  bidirectional: true
+  dropout: 0.1
+  proj_dim: 256
+  num_classes: 2
+  label_map:
+    0: legitimate
+    1: phishing
 
 train:
-  epochs: 5
-  lr: 2e-5
-  bs: 16
-  pos_weight: 1.0
-  log_every: 50
-  seed: 42
-  weight_decay: 0.01
-
-eval:
-  bs: 32
-  monitor: val/auroc
-  patience: 2
+  epochs: 50
+  batch_size: 64
+  lr: 0.0001
+  patience: 5
+  limit_train_batches: 1.0
+  limit_val_batches: 1.0
