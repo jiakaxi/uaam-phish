@@ -1156,6 +1156,77 @@ pip install -e .
 
 ---
 
+---
+
+## 🚀 快速运行命令
+
+### 一键运行（推荐）
+```bash
+# Linux/Mac
+bash scripts/run_all_protocols.sh
+
+# Windows PowerShell
+.\scripts\run_all_protocols.ps1
+```
+
+### 单协议运行
+```bash
+# Random
+python scripts/train_hydra.py protocol=random use_build_splits=true
+
+# Temporal
+python scripts/train_hydra.py protocol=temporal use_build_splits=true
+
+# Brand-OOD
+python scripts/train_hydra.py protocol=brand_ood use_build_splits=true
+```
+
+### 验证产物
+```bash
+# 自动验证最新实验
+python tools/check_artifacts_url_only.py
+
+# 验证特定实验
+python tools/check_artifacts_url_only.py experiments/url_random_20251022_120000
+```
+
+---
+
+## 🛠️ 准备工作
+
+```bash
+# 如果没有 master.csv，先创建
+python scripts/create_master_csv.py
+
+# 检查数据
+ls -lh data/processed/*.csv
+```
+
+---
+
+## ✅ 验证清单
+
+### 四件套文件存在性
+- ✅ `roc_{protocol}.png` - ROC曲线
+- ✅ `calib_{protocol}.png` - 校准曲线（含ECE）
+- ✅ `splits_{protocol}.csv` - 分割统计
+- ✅ `metrics_{protocol}.json` - 完整指标
+
+### splits_{protocol}.csv 列完整性（13列）
+- split, count, pos_count, neg_count, brand_unique, brand_set, timestamp_min, timestamp_max, source_counts, brand_intersection_ok, tie_policy, brand_normalization, downgraded_to
+
+### metrics_{protocol}.json schema 完整性
+- accuracy, auroc, f1_macro, nll, ece, ece_bins_used, positive_class, artifacts, warnings
+
+### ECE bins 范围合理性 [3, 15]
+- 自适应计算：`max(3, min(15, floor(sqrt(N)), 10))`
+
+### 协议特定验证
+- brand_ood 的 brand_intersection_ok
+- temporal 的 tie_policy
+
+---
+
 **文档版本**: 1.0
 **最后更新**: 2025-10-22
 **维护者**: AI Assistant

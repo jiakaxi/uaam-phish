@@ -22,9 +22,9 @@ use_build_splits: false
 # 路径配置
 paths:
   data_root: ${oc.env:DATA_ROOT,data/processed}
-  train_index: ${paths.data_root}/train.csv
-  val_index: ${paths.data_root}/val.csv
-  test_index: ${paths.data_root}/test.csv
+  train_index: ${paths.data_root}/train_v2.csv
+  val_index: ${paths.data_root}/val_v2.csv
+  test_index: ${paths.data_root}/test_v2.csv
 
 # Hydra 运行时配置
 hydra:

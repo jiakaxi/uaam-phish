@@ -6,10 +6,10 @@ defaults:
 
 # 覆盖数据路径（使用环境变量）
 data:
-  csv_path: ${oc.env:DATA_ROOT,data/processed}/master.csv
-  train_csv: ${oc.env:DATA_ROOT,data/processed}/url_train.csv
-  val_csv: ${oc.env:DATA_ROOT,data/processed}/url_val.csv
-  test_csv: ${oc.env:DATA_ROOT,data/processed}/url_test.csv
+  csv_path: ${oc.env:DATA_ROOT,data/processed}/master_v2.csv
+  train_csv: ${oc.env:DATA_ROOT,data/processed}/url_train_v2.csv
+  val_csv: ${oc.env:DATA_ROOT,data/processed}/url_val_v2.csv
+  test_csv: ${oc.env:DATA_ROOT,data/processed}/url_test_v2.csv
   num_workers: 16  # 大数据集使用更多worker
 
 # 训练参数优化

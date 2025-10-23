@@ -2,10 +2,10 @@
 # URL 数据配置（字符级）
 
 data:
-  csv_path: ${oc.env:DATA_ROOT,data/processed}/master.csv
-  train_csv: ${oc.env:DATA_ROOT,data/processed}/url_train.csv
-  val_csv: ${oc.env:DATA_ROOT,data/processed}/url_val.csv
-  test_csv: ${oc.env:DATA_ROOT,data/processed}/url_test.csv
+  csv_path: ${oc.env:DATA_ROOT,data/processed}/master_v2.csv
+  train_csv: ${oc.env:DATA_ROOT,data/processed}/url_train_v2.csv
+  val_csv: ${oc.env:DATA_ROOT,data/processed}/url_val_v2.csv
+  test_csv: ${oc.env:DATA_ROOT,data/processed}/url_test_v2.csv
   num_workers: 4
   text_col: url_text
   label_col: label

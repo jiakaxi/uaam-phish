@@ -3,6 +3,7 @@
 **实施日期**: 2025-10-23
 **实施状态**: ✅ **完成并验证通过**
 **测试结果**: ✅ **13/13 测试通过**
+**数据集版本**: ✅ **已升级到v2版本（包含brand_raw, brand, timestamp字段）**
 
 ---
 
@@ -19,6 +20,24 @@
 ---
 
 ## 📦 交付成果
+
+### 0. 数据集升级（v2版本）
+
+**升级内容**：
+- ✅ **brand_raw字段**：从HTML/URL提取的原始品牌信息
+- ✅ **brand字段**：规范化后的品牌标识（用于OOD拆分）
+- ✅ **timestamp字段**：ISO8601格式时间戳（用于时间序列分析）
+
+**升级工具**：
+- `scripts/upgrade_dataset.py` - 自动升级脚本
+- 支持HTML解析、域名提取、时间戳生成
+- 幂等操作，可重复运行
+
+**配置文件更新**：
+- `configs/data/url_only.yaml` - 默认使用v2数据集
+- `configs/data/url_large.yaml` - 大数据集配置
+- `configs/default.yaml` - 基础配置
+- `configs/config.yaml` - 主配置文件
 
 ### 1. 新增核心功能文件（4个）
 

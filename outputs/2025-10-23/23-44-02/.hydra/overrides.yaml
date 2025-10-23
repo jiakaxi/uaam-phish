@@ -1,0 +1,6 @@
+- logger=wandb
+- run.name=url_v2_dataset
+- +run.tags=[url-only,v2-dataset,upgraded]
+- trainer=default
+- data=url_only
+- model=url_encoder

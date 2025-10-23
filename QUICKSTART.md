@@ -115,6 +115,94 @@ python scripts/build_master_and_splits.py \
   --outdir data/processed
 ```
 
+---
+
+## 🚀 快速训练命令
+
+### 方式1: 使用PowerShell脚本（推荐）
+```powershell
+.\start_training.ps1
+```
+
+### 方式2: 直接命令行
+```powershell
+python scripts/train_hydra.py logger=wandb trainer=default data=url_only model=url_encoder
+```
+
+### 方式3: 使用默认配置
+```powershell
+python scripts/train_hydra.py
+```
+
+---
+
+## 📊 查看训练进度
+
+### WandB Dashboard
+访问: https://wandb.ai 查看实时图表
+
+### 本地日志
+```powershell
+# 实时查看最新日志
+Get-ChildItem outputs -Recurse -Filter "*.log" |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1 |
+  ForEach-Object { Get-Content $_.FullName -Wait }
+```
+
+---
+
+## 🎯 MLOps 协议快速参考
+
+### 一行命令启动
+```bash
+# Random 协议（默认）
+python scripts/train_hydra.py
+
+# Temporal 协议
+python scripts/train_hydra.py protocol=temporal
+
+# Brand-OOD 协议
+python scripts/train_hydra.py protocol=brand_ood
+```
+
+### 三种协议对比
+| 协议 | 用途 | 要求 | 特点 |
+|------|------|------|------|
+| **random** | 基线 | 无 | 分层随机，始终可用 |
+| **temporal** | 时序预测 | timestamp列 | 时间顺序，left-closed |
+| **brand_ood** | 域泛化 | brand列，≥3品牌 | 品牌不相交 |
+
+---
+
+## 📚 文档管理
+
+### 自动追加文档（已集成）
+```bash
+# 启用自动追加
+python scripts/train_hydra.py logging.auto_append_docs=true
+
+# 使用协议 + 自动追加
+python scripts/train_hydra.py protocol=temporal logging.auto_append_docs=true
+```
+
+**效果**：训练结束后，实验结果会自动追加到 `FINAL_SUMMARY_CN.md`
+
+### 手动追加文档
+```python
+from src.utils.documentation import DocumentationAppender
+
+doc = DocumentationAppender()
+
+# 追加到总结文档
+doc.append_to_summary(
+    feature_name="新功能名称",
+    summary="功能描述",
+    deliverables=["交付物1", "交付物2"],
+    features=["✅ 功能A", "✅ 功能B"],
+)
+```
+
 ## 📁 重要目录
 
 ```

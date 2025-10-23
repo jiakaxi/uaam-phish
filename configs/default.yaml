@@ -5,10 +5,10 @@ seed: 42
 protocol: random
 
 data:
-  csv_path: data/processed/master.csv
-  train_csv: data/processed/url_train.csv
-  val_csv: data/processed/url_val.csv
-  test_csv: data/processed/url_test.csv
+  csv_path: data/processed/master_v2.csv
+  train_csv: data/processed/url_train_v2.csv
+  val_csv: data/processed/url_val_v2.csv
+  test_csv: data/processed/url_test_v2.csv
   num_workers: 2
   text_col: url_text
   label_col: label
