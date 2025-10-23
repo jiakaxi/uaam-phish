@@ -8,9 +8,9 @@ hardware:
   num_workers: 4
 
 train:
-  epochs: 10
-  lr: 1.0e-3
-  bs: 32
+  epochs: 50        # 修复: 从10改为50
+  lr: 1.0e-4        # 修复: 从1e-3改为1e-4 (0.0001)
+  bs: 64            # 修复: 从32改为64
   log_every: 50
   weight_decay: 1.0e-5
 

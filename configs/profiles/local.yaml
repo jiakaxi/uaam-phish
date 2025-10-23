@@ -3,6 +3,10 @@ seed: 42
 data:
   num_workers: 0
 
+logging:
+  save_curves: false
+  save_tables: true
+
 train:
   batch_size: 8
   epochs: 5

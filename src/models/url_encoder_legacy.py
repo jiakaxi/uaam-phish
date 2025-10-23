@@ -17,7 +17,7 @@ class UrlBertEncoder(nn.Module):
     Legacy HuggingFace-based encoder kept for backward compatibility with
     multimodal experiments.
 
-    ⚠️  不建议用于新实验，请使用 URLEncoder（字符级）
+    [WARNING] 不建议用于新实验，请使用 URLEncoder（字符级）
     """
 
     def __init__(

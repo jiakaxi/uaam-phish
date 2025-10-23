@@ -140,7 +140,7 @@ class ExperimentTracker:
         """
         src_ckpt_dir = lightning_log_dir / "checkpoints"
         if not src_ckpt_dir.exists():
-            print(f"⚠️  检查点目录不存在: {src_ckpt_dir}")
+            print(f"[WARNING] 检查点目录不存在: {src_ckpt_dir}")
             return
 
         # 复制所有检查点文件

@@ -15,6 +15,10 @@ run:
   name: url_mvp
   seed: 42
 
+# 协议配置
+protocol: random
+use_build_splits: false
+
 # 路径配置
 paths:
   data_root: ${oc.env:DATA_ROOT,data/processed}

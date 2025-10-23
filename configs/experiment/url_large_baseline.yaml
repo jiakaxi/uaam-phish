@@ -1,0 +1,27 @@
+# @package _global_
+# 大数据集URL基线实验配置
+
+defaults:
+  - override /model: url_encoder
+  - override /data: url_large
+  - override /trainer: server
+  - override /logger: wandb
+
+run:
+  name: url_large_baseline
+  seed: 42
+
+# 训练参数
+train:
+  epochs: 50
+  batch_size: 128
+  lr: 5e-4  # 大数据集可以用更大学习率
+  patience: 10
+
+# 协议
+protocol: random
+
+# WandB配置
+logger:
+  tags: [large-dataset, url-only, baseline]
+  notes: "URL-only baseline on large dataset"

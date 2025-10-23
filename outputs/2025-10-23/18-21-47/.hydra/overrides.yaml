@@ -1,0 +1,4 @@
+- protocol=random
+- use_build_splits=true
+- trainer=local
+- train.epochs=2

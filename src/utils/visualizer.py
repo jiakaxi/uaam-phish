@@ -40,23 +40,35 @@ class ResultVisualizer:
         """
         df = pd.read_csv(metrics_csv)
 
-        # 过滤出需要的列
+        # 过滤出需要的列（支持两种命名格式）
         metric_cols = {
             "train/loss": "Train Loss",
             "val/loss": "Val Loss",
+            "train_loss": "Train Loss",
+            "val_loss": "Val Loss",
+            "train/acc": "Train Acc",
+            "val/acc": "Val Acc",
+            "train_acc": "Train Acc",
+            "val_acc": "Val Acc",
             "train/f1": "Train F1",
             "val/f1": "Val F1",
+            "train_f1": "Train F1",
+            "val_f1": "Val F1",
             "train/auroc": "Train AUROC",
             "val/auroc": "Val AUROC",
+            "train_auroc": "Train AUROC",
+            "val_auroc": "Val AUROC",
             "train/fpr": "Train FPR",
             "val/fpr": "Val FPR",
+            "train_fpr": "Train FPR",
+            "val_fpr": "Val FPR",
         }
 
         # 检查哪些列存在
         available_metrics = {k: v for k, v in metric_cols.items() if k in df.columns}
 
         if not available_metrics:
-            print("⚠️  未找到可绘制的指标")
+            print(f"[WARNING] 未找到可绘制的指标。可用列: {list(df.columns)}")
             return None
 
         # 创建子图
@@ -65,57 +77,120 @@ class ResultVisualizer:
 
         # 1. Loss
         ax = axes[0]
-        if "train/loss" in df.columns:
-            ax.plot(df["epoch"], df["train/loss"], label="Train Loss", marker="o")
-        if "val/loss" in df.columns:
-            ax.plot(df["epoch"], df["val/loss"], label="Val Loss", marker="s")
+        for col in ["train/loss", "train_loss"]:
+            if col in df.columns:
+                ax.plot(df["epoch"], df[col], label="Train Loss", marker="o")
+                break
+        for col in ["val/loss", "val_loss"]:
+            if col in df.columns:
+                ax.plot(df["epoch"], df[col], label="Val Loss", marker="s")
+                break
         ax.set_xlabel("Epoch")
         ax.set_ylabel("Loss")
         ax.set_title("训练和验证 Loss")
         ax.legend()
         ax.grid(True, alpha=0.3)
 
-        # 2. F1 Score
+        # 2. Accuracy (如果没有F1，显示准确率)
         ax = axes[1]
-        if "train/f1" in df.columns:
-            ax.plot(df["epoch"], df["train/f1"], label="Train F1", marker="o")
-        if "val/f1" in df.columns:
-            ax.plot(df["epoch"], df["val/f1"], label="Val F1", marker="s")
+        has_f1 = False
+        for col in ["train/f1", "train_f1"]:
+            if col in df.columns:
+                ax.plot(df["epoch"], df[col], label="Train F1", marker="o")
+                has_f1 = True
+                break
+        for col in ["val/f1", "val_f1"]:
+            if col in df.columns:
+                ax.plot(df["epoch"], df[col], label="Val F1", marker="s")
+                has_f1 = True
+                break
+
+        if not has_f1:
+            # 如果没有F1，绘制准确率
+            for col in ["train/acc", "train_acc"]:
+                if col in df.columns:
+                    ax.plot(df["epoch"], df[col], label="Train Acc", marker="o")
+                    break
+            for col in ["val/acc", "val_acc"]:
+                if col in df.columns:
+                    ax.plot(df["epoch"], df[col], label="Val Acc", marker="s")
+                    break
+            ax.set_ylabel("Accuracy")
+            ax.set_title("准确率")
+        else:
+            ax.set_ylabel("F1 Score")
+            ax.set_title("F1 分数")
         ax.set_xlabel("Epoch")
-        ax.set_ylabel("F1 Score")
-        ax.set_title("F1 分数")
         ax.legend()
         ax.grid(True, alpha=0.3)
 
         # 3. AUROC
         ax = axes[2]
-        if "train/auroc" in df.columns:
-            ax.plot(df["epoch"], df["train/auroc"], label="Train AUROC", marker="o")
-        if "val/auroc" in df.columns:
-            ax.plot(df["epoch"], df["val/auroc"], label="Val AUROC", marker="s")
-        ax.set_xlabel("Epoch")
-        ax.set_ylabel("AUROC")
-        ax.set_title("ROC 曲线下面积")
-        ax.legend()
-        ax.grid(True, alpha=0.3)
+        has_auroc = False
+        for col in ["train/auroc", "train_auroc"]:
+            if col in df.columns:
+                ax.plot(df["epoch"], df[col], label="Train AUROC", marker="o")
+                has_auroc = True
+                break
+        for col in ["val/auroc", "val_auroc"]:
+            if col in df.columns:
+                ax.plot(df["epoch"], df[col], label="Val AUROC", marker="s")
+                has_auroc = True
+                break
 
-        # 4. FPR
+        if has_auroc:
+            ax.set_xlabel("Epoch")
+            ax.set_ylabel("AUROC")
+            ax.set_title("ROC 曲线下面积")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+        else:
+            ax.text(
+                0.5,
+                0.5,
+                "No AUROC data",
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+            )
+            ax.set_title("AUROC (无数据)")
+
+        # 4. FPR or other metrics
         ax = axes[3]
-        if "train/fpr" in df.columns:
-            ax.plot(df["epoch"], df["train/fpr"], label="Train FPR", marker="o")
-        if "val/fpr" in df.columns:
-            ax.plot(df["epoch"], df["val/fpr"], label="Val FPR", marker="s")
-        ax.set_xlabel("Epoch")
-        ax.set_ylabel("False Positive Rate")
-        ax.set_title("假阳性率（越低越好）")
-        ax.legend()
-        ax.grid(True, alpha=0.3)
+        has_fpr = False
+        for col in ["train/fpr", "train_fpr"]:
+            if col in df.columns:
+                ax.plot(df["epoch"], df[col], label="Train FPR", marker="o")
+                has_fpr = True
+                break
+        for col in ["val/fpr", "val_fpr"]:
+            if col in df.columns:
+                ax.plot(df["epoch"], df[col], label="Val FPR", marker="s")
+                has_fpr = True
+                break
+
+        if has_fpr:
+            ax.set_xlabel("Epoch")
+            ax.set_ylabel("False Positive Rate")
+            ax.set_title("假阳性率（越低越好）")
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+        else:
+            ax.text(
+                0.5,
+                0.5,
+                "No FPR data",
+                ha="center",
+                va="center",
+                transform=ax.transAxes,
+            )
+            ax.set_title("FPR (无数据)")
 
         plt.tight_layout()
 
         if save_path:
             fig.savefig(save_path, dpi=300, bbox_inches="tight")
-            print(f"✅ 训练曲线已保存: {save_path}")
+            print(f"[SUCCESS] 训练曲线已保存: {save_path}")
 
         return fig
 
@@ -185,7 +260,7 @@ class ResultVisualizer:
 
         if save_path:
             fig.savefig(save_path, dpi=300, bbox_inches="tight")
-            print(f"✅ 混淆矩阵已保存: {save_path}")
+            print(f"[SUCCESS] 混淆矩阵已保存: {save_path}")
 
         return fig
 
@@ -236,7 +311,7 @@ class ResultVisualizer:
 
         if save_path:
             fig.savefig(save_path, dpi=300, bbox_inches="tight")
-            print(f"✅ ROC 曲线已保存: {save_path}")
+            print(f"[SUCCESS] ROC 曲线已保存: {save_path}")
 
         return fig
 
@@ -314,7 +389,7 @@ class ResultVisualizer:
 
         if save_path:
             fig.savefig(save_path, dpi=300, bbox_inches="tight")
-            print(f"✅ 阈值分析图已保存: {save_path}")
+            print(f"[SUCCESS] 阈值分析图已保存: {save_path}")
 
         return fig, best_threshold
 
@@ -348,7 +423,7 @@ class ResultVisualizer:
                 plt.close(fig)
                 saved_files.append(output_dir / "training_curves.png")
         except Exception as e:
-            print(f"⚠️  训练曲线绘制失败: {e}")
+            print(f"[WARNING] 训练曲线绘制失败: {e}")
 
         # 2. ROC 曲线
         try:
@@ -358,7 +433,7 @@ class ResultVisualizer:
             plt.close(fig)
             saved_files.append(output_dir / "roc_curve.png")
         except Exception as e:
-            print(f"⚠️  ROC 曲线绘制失败: {e}")
+            print(f"[WARNING] ROC 曲线绘制失败: {e}")
 
         # 3. 混淆矩阵（使用 0.5 阈值）
         try:
@@ -369,7 +444,7 @@ class ResultVisualizer:
             plt.close(fig)
             saved_files.append(output_dir / "confusion_matrix.png")
         except Exception as e:
-            print(f"⚠️  混淆矩阵绘制失败: {e}")
+            print(f"[WARNING] 混淆矩阵绘制失败: {e}")
 
         # 4. 阈值分析
         try:
@@ -379,6 +454,125 @@ class ResultVisualizer:
             plt.close(fig)
             saved_files.append(output_dir / "threshold_analysis.png")
         except Exception as e:
-            print(f"⚠️  阈值分析图绘制失败: {e}")
+            print(f"[WARNING] 阈值分析图绘制失败: {e}")
 
         return saved_files
+
+    @staticmethod
+    def save_roc_curve(
+        y_true: np.ndarray,
+        y_score: np.ndarray,
+        path: Path,
+        pos_label: int = 1,
+        title: Optional[str] = None,
+    ):
+        """
+        Save ROC curve to file.
+
+        Args:
+            y_true: True labels
+            y_score: Predicted scores/probabilities for positive class
+            path: Output path
+            pos_label: Positive class label (default=1)
+            title: Plot title
+        """
+        from sklearn.metrics import roc_curve, auc
+
+        fpr, tpr, _ = roc_curve(y_true, y_score, pos_label=pos_label)
+        roc_auc = auc(fpr, tpr)
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.plot(
+            fpr, tpr, color="darkorange", lw=2, label=f"ROC curve (AUC = {roc_auc:.3f})"
+        )
+        ax.plot([0, 1], [0, 1], color="navy", lw=2, linestyle="--", label="Random")
+        ax.set_xlim([0.0, 1.0])
+        ax.set_ylim([0.0, 1.05])
+        ax.set_xlabel("False Positive Rate")
+        ax.set_ylabel("True Positive Rate")
+        ax.set_title(title or "ROC Curve")
+        ax.legend(loc="lower right")
+        ax.grid(True, alpha=0.3)
+
+        fig.savefig(path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"[SUCCESS] ROC curve saved: {path}")
+        return fig
+
+    @staticmethod
+    def save_calibration_curve(
+        y_true: np.ndarray,
+        y_prob: np.ndarray,
+        path: Path,
+        n_bins: int,
+        ece_value: float,
+        warn_small_sample: bool = False,
+        title: Optional[str] = None,
+    ):
+        """
+        Save calibration curve with ECE annotation.
+
+        Args:
+            y_true: True labels (0 or 1)
+            y_prob: Predicted probabilities for positive class
+            path: Output path
+            n_bins: Number of bins used
+            ece_value: ECE value to annotate
+            warn_small_sample: Show warning if bins were reduced due to small sample
+            title: Plot title
+        """
+        from sklearn.calibration import calibration_curve
+
+        # Compute calibration curve
+        fraction_of_positives, mean_predicted_value = calibration_curve(
+            y_true, y_prob, n_bins=n_bins, strategy="uniform"
+        )
+
+        fig, ax = plt.subplots(figsize=(8, 6))
+
+        # Plot calibration curve
+        ax.plot(
+            mean_predicted_value,
+            fraction_of_positives,
+            "s-",
+            label=f"Model (ECE={ece_value:.4f})",
+            linewidth=2,
+            markersize=8,
+        )
+        ax.plot([0, 1], [0, 1], "k--", label="Perfect calibration", linewidth=2)
+
+        ax.set_xlabel("Mean Predicted Probability")
+        ax.set_ylabel("Fraction of Positives")
+        ax.set_title(title or f"Calibration Curve (bins={n_bins})")
+        ax.legend(loc="lower right")
+        ax.grid(True, alpha=0.3)
+
+        # Annotate ECE
+        ax.text(
+            0.05,
+            0.95,
+            f"ECE = {ece_value:.4f}",
+            transform=ax.transAxes,
+            fontsize=12,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5),
+        )
+
+        # Warning for small sample
+        if warn_small_sample:
+            ax.text(
+                0.5,
+                0.5,
+                "WARNING: Small sample: bins reduced",
+                transform=ax.transAxes,
+                fontsize=10,
+                color="red",
+                ha="center",
+                va="center",
+                bbox=dict(boxstyle="round", facecolor="yellow", alpha=0.7),
+            )
+
+        fig.savefig(path, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"[SUCCESS] Calibration curve saved: {path}")
+        return fig

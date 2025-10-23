@@ -1,10 +1,22 @@
+defaults:
+  - logger: csv
+
 seed: 42
+protocol: random
 
 data:
+  csv_path: data/processed/master.csv
   train_csv: data/processed/url_train.csv
   val_csv: data/processed/url_val.csv
   test_csv: data/processed/url_test.csv
   num_workers: 2
+  text_col: url_text
+  label_col: label
+  timestamp_col: timestamp
+  brand_col: brand
+  source_col: source
+  min_len: 1
+  batch_format: tuple
 
 model:
   vocab_size: 128
@@ -28,3 +40,26 @@ train:
   patience: 5
   limit_train_batches: 1.0
   limit_val_batches: 1.0
+
+metrics:
+  classification: [accuracy, auroc, f1]
+  average: macro
+  reliability: [ece, nll]
+  reliability_bins: 15
+  dist:
+    sync_metrics: false
+
+logging:
+  save_curves: true
+  save_tables: true
+  # 项目文档自动追加配置
+  auto_append_docs: false  # 设置为 true 启用自动追加
+  append_to_summary: true   # 追加到 FINAL_SUMMARY_CN.md
+  append_to_changes: false  # 追加到 CHANGES_SUMMARY.md（可选）
+
+outputs:
+  dir_root: experiments/
+  roc_fname: roc_{protocol}.png
+  calib_fname: calib_{protocol}.png
+  split_table_fname: splits_{protocol}.csv
+  metrics_fname: metrics_{protocol}.json

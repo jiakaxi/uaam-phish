@@ -1,0 +1,4 @@
+- +experiment=url_baseline
+- hardware.accelerator=cpu
+- hardware.precision=32
+- logger=wandb

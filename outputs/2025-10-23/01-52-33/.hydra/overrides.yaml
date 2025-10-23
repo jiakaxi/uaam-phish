@@ -1,0 +1,2 @@
+- logger=wandb
+- run.name=url_full_baseline

@@ -1,0 +1,4 @@
+- logger=wandb
+- trainer=default
+- data=url_only
+- model=url_encoder

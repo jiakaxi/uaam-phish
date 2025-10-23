@@ -1,0 +1,22 @@
+# @package _global_
+# 多GPU训练配置
+
+defaults:
+  - server
+
+hardware:
+  accelerator: gpu
+  devices: -1  # 使用所有可用GPU
+  precision: 16-mixed  # 混合精度训练
+  strategy: ddp  # 分布式数据并行
+  num_workers: 16
+
+train:
+  batch_size: 64  # 每个GPU的批次大小
+  epochs: 50
+  gradient_clip_val: 1.0  # 梯度裁剪
+
+# DDP相关配置
+metrics:
+  dist:
+    sync_metrics: true  # 多GPU时同步指标

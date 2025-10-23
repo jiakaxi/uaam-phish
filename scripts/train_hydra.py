@@ -32,6 +32,8 @@ from src.systems.url_only_module import UrlOnlySystem
 from src.datamodules.url_datamodule import UrlDataModule
 from src.utils.experiment_tracker import ExperimentTracker
 from src.utils.callbacks import ExperimentResultsCallback, TestPredictionCollector
+from src.utils.protocol_artifacts import ProtocolArtifactsCallback
+from src.utils.doc_callback import DocumentationCallback
 from src.utils.logging import get_logger
 
 log = get_logger(__name__)
@@ -66,7 +68,7 @@ def train(cfg: DictConfig) -> float:
     exp_tracker = None
     if not cfg.get("no_save", False):
         exp_tracker = ExperimentTracker(cfg, exp_name=cfg.run.name)
-        log.info(f"\n📁 实验目录: {exp_tracker.exp_dir}\n")
+        log.info(f"\n>> 实验目录: {exp_tracker.exp_dir}\n")
 
     # 初始化数据和模型
     dm = UrlDataModule(cfg)
@@ -88,19 +90,46 @@ def train(cfg: DictConfig) -> float:
     ]
 
     # 添加实验结果保存回调
+    protocol_callback = None  # 定义在外面，后续可以更新 metadata
     if exp_tracker:
         callbacks.append(ExperimentResultsCallback(exp_tracker))
         pred_collector = TestPredictionCollector()
         callbacks.append(pred_collector)
+
+        # 添加协议工件回调（metadata 将在 trainer.fit 后从 dm 获取）
+        protocol = cfg.get("protocol", "random")
+        protocol_callback = ProtocolArtifactsCallback(
+            protocol=protocol,
+            results_dir=exp_tracker.results_dir,
+            split_metadata={},  # 初始为空，稍后从 dm.split_metadata 更新
+        )
+        callbacks.append(protocol_callback)
+
+        # 添加项目文档自动追加回调（可选）
+        if cfg.get("logging", {}).get("auto_append_docs", False):
+            exp_name = cfg.get("exp_name", f"{protocol}_实验")
+            doc_callback = DocumentationCallback(
+                feature_name=f"实验: {exp_name}",
+                append_to_summary=cfg.get("logging", {}).get("append_to_summary", True),
+                append_to_changes=cfg.get("logging", {}).get(
+                    "append_to_changes", False
+                ),
+            )
+            callbacks.append(doc_callback)
+            log.info(">> 已启用项目文档自动追加")
+        else:
+            log.info(
+                ">> 项目文档自动追加未启用（可通过 logging.auto_append_docs=true 启用）"
+            )
 
     # 配置 Logger
     logger = None
     if "logger" in cfg:
         try:
             logger = hydra.utils.instantiate(cfg.logger)
-            log.info(f"✅ 使用 Logger: {cfg.logger._target_}")
+            log.info(f">> 使用 Logger: {cfg.logger._target_}")
         except Exception as e:
-            log.warning(f"⚠️  Logger 初始化失败: {e}")
+            log.warning(f">> Logger 初始化失败: {e}")
             log.warning("   将使用默认的 CSV logger")
 
     # 配置训练器
@@ -118,22 +147,23 @@ def train(cfg: DictConfig) -> float:
 
     # 打印训练信息
     log.info("=" * 70)
-    log.info("🚀 开始训练")
+    log.info(">> 开始训练")
     log.info("=" * 70)
-    log.info("📊 模型配置:")
-    log.info(f"  - 预训练模型: {cfg.model.pretrained_name}")
-    log.info(f"  - 最大长度: {cfg.data.max_length}")
+    log.info(">> 模型配置:")
+    model_name = getattr(cfg.model, "pretrained_name", "URLEncoder")
+    max_len = getattr(cfg.model, "max_len", getattr(cfg.data, "max_length", 256))
+    log.info(f"  - 模型: {model_name}")
+    log.info(f"  - 最大长度: {max_len}")
     log.info(f"  - Dropout: {cfg.model.dropout}")
-    log.info("\n🔧 训练配置:")
+    log.info("\n>> 训练配置:")
     log.info(f"  - Epochs: {cfg.train.epochs}")
     log.info(f"  - Batch size: {cfg.train.bs}")
     log.info(f"  - Learning rate: {cfg.train.lr}")
-    log.info(f"  - 采样比例: {cfg.data.sample_fraction}")
-    log.info("\n💻 硬件配置:")
+    log.info("\n>> 硬件配置:")
     log.info(f"  - Accelerator: {cfg.hardware.accelerator}")
     log.info(f"  - Devices: {cfg.hardware.devices}")
     log.info(f"  - Precision: {cfg.hardware.precision}")
-    log.info("\n📈 监控配置:")
+    log.info("\n>> 监控配置:")
     log.info(f"  - Monitor: {monitor}")
     log.info(f"  - Mode: {mode}")
     log.info(f"  - Patience: {patience}")
@@ -141,6 +171,16 @@ def train(cfg: DictConfig) -> float:
 
     # 训练和测试
     trainer.fit(model, dm)
+
+    # 在 fit 后从 dm 获取 split_metadata 并更新 callback
+    if protocol_callback is not None and hasattr(dm, "split_metadata"):
+        protocol_callback.split_metadata = dm.split_metadata
+        log.info(
+            f">> Updated protocol_callback with split_metadata: {list(dm.split_metadata.keys())}"
+        )
+
+    # 设置测试数据
+    dm.setup(stage="test")
     test_results = trainer.test(
         model, dataloaders=dm.test_dataloader(), ckpt_path="best"
     )
@@ -155,24 +195,24 @@ def train(cfg: DictConfig) -> float:
             y_true, y_prob = pred_collector.get_predictions()
 
             if len(y_true) > 0 and metrics_csv.exists():
-                log.info("\n📊 生成可视化图表...")
+                log.info("\n>> 生成可视化图表...")
                 ResultVisualizer.create_all_plots(
                     metrics_csv=metrics_csv,
                     y_true=y_true,
                     y_prob=y_prob,
                     output_dir=exp_tracker.results_dir,
                 )
-                log.info("✅ 所有图表已生成\n")
+                log.info(">> 所有图表已生成\n")
         except ImportError:
-            log.warning("⚠️  matplotlib/seaborn 未安装，跳过可视化")
+            log.warning(">> matplotlib/seaborn 未安装，跳过可视化")
             log.warning('   安装命令: pip install -e ".[viz]"')
         except Exception as e:
-            log.warning(f"⚠️  可视化生成失败: {e}")
+            log.warning(f">> 可视化生成失败: {e}")
 
     log.info("\n" + "=" * 70)
-    log.info("✅ 训练完成！")
+    log.info(">> 训练完成！")
     if exp_tracker:
-        log.info(f"📁 实验结果保存在: {exp_tracker.exp_dir}")
+        log.info(f">> 实验结果保存在: {exp_tracker.exp_dir}")
     log.info("=" * 70)
 
     # 返回最佳指标（用于超参数优化）

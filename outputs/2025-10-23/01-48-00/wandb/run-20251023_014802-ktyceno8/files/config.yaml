@@ -1,0 +1,102 @@
+_wandb:
+    value:
+        cli_version: 0.19.1
+        m:
+            - "1": trainer/global_step
+              "6":
+                - 3
+              "7": []
+        python_version: 3.12.2
+        t:
+            "1":
+                - 1
+                - 5
+                - 9
+                - 11
+                - 41
+                - 49
+                - 50
+                - 53
+                - 55
+                - 103
+                - 105
+            "2":
+                - 1
+                - 5
+                - 9
+                - 11
+                - 41
+                - 49
+                - 50
+                - 53
+                - 55
+                - 103
+                - 105
+            "3":
+                - 7
+                - 13
+                - 23
+                - 55
+                - 66
+            "4": 3.12.2
+            "5": 0.19.1
+            "6": 4.47.1
+            "8":
+                - 3
+                - 5
+            "12": 0.19.1
+            "13": windows-amd64
+cfg:
+    value:
+        data:
+            label_col: label
+            num_workers: 4
+            test_csv: data/processed/url_test.csv
+            text_col: url_text
+            train_csv: data/processed/url_train.csv
+            val_csv: data/processed/url_val.csv
+        eval:
+            bs: 64
+            monitor: val_loss
+            patience: 5
+        hardware:
+            accelerator: auto
+            devices: auto
+            num_workers: 4
+            precision: 32
+        logger:
+            _target_: pytorch_lightning.loggers.WandbLogger
+            entity: null
+            log_model: false
+            name: url_full_baseline
+            notes: null
+            offline: false
+            project: uaam-phish
+            save_dir: D:\uaam-phish\outputs\2025-10-23\01-48-00
+            tags: null
+        model:
+            _target_: src.models.url_encoder.URLEncoder
+            bidirectional: true
+            dropout: 0.1
+            embedding_dim: 128
+            hidden_dim: 128
+            max_len: 256
+            num_classes: 2
+            num_layers: 2
+            pad_id: 0
+            proj_dim: 256
+            vocab_size: 128
+        paths:
+            data_root: data/processed
+            test_index: data/processed/test.csv
+            train_index: data/processed/train.csv
+            val_index: data/processed/val.csv
+        run:
+            name: url_full_baseline
+            seed: 42
+        train:
+            bs: 32
+            epochs: 10
+            log_every: 50
+            lr: 0.001
+            weight_decay: 1e-05

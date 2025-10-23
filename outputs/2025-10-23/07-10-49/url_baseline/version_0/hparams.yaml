@@ -1,0 +1,64 @@
+cfg:
+  model:
+    _target_: src.models.url_encoder.URLEncoder
+    vocab_size: 128
+    embedding_dim: 128
+    hidden_dim: 128
+    num_layers: 2
+    bidirectional: true
+    dropout: 0.2
+    pad_id: 0
+    proj_dim: 256
+    max_len: 256
+    num_classes: 2
+    pretrained_name: roberta-base
+  data:
+    csv_path: data/processed/master.csv
+    train_csv: data/processed/url_train.csv
+    val_csv: data/processed/url_val.csv
+    test_csv: data/processed/url_test.csv
+    num_workers: 4
+    text_col: url_text
+    label_col: label
+    timestamp_col: timestamp
+    brand_col: brand
+    source_col: source
+    min_len: 1
+    batch_format: tuple
+    split_ratios:
+      train: 0.7
+      val: 0.15
+      test: 0.15
+  hardware:
+    accelerator: cpu
+    devices: 1
+    precision: 32
+    num_workers: 8
+    strategy: auto
+  train:
+    epochs: 10
+    lr: 2.0e-05
+    bs: 32
+    log_every: 50
+    weight_decay: 1.0e-05
+  eval:
+    bs: 64
+    monitor: val_loss
+    patience: 5
+  logger:
+    _target_: pytorch_lightning.loggers.CSVLogger
+    save_dir: D:\uaam-phish\outputs\2025-10-23\07-10-49
+    name: url_baseline
+    version: null
+  run:
+    name: url_baseline
+    seed: 42
+    tags:
+    - url-only
+    - baseline
+    - roberta
+  paths:
+    data_root: data/processed
+    train_index: data/processed/train.csv
+    val_index: data/processed/val.csv
+    test_index: data/processed/test.csv

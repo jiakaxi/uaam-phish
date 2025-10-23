@@ -1,0 +1,43 @@
+# @package _global_
+# URL Baseline - 正确的训练配置
+
+defaults:
+  - override /data: url_only
+  - override /model: url_encoder
+  - override /logger: tensorboard
+
+run:
+  name: url_baseline_correct
+  seed: 42
+  tags:
+    - url-only
+    - baseline
+    - corrected
+
+# 使用上次成功的训练配置
+model:
+  dropout: 0.1  # 从0.2改回0.1
+
+train:
+  epochs: 50    # 从10改回50
+  bs: 64        # 从32改回64
+  lr: 0.0001    # 从2e-5改回1e-4
+  log_every: 50
+  weight_decay: 1.0e-05
+
+eval:
+  bs: 64
+  monitor: val_loss
+  patience: 5
+
+hardware:
+  accelerator: cpu
+  devices: 1
+  precision: 32
+
+metrics:
+  classification: [accuracy, auroc, f1]
+  average: macro
+  reliability: [ece, nll]
+  dist:
+    sync_metrics: false

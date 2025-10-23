@@ -9,4 +9,4 @@ data:
   sample_fraction: 1.0
 
 train:
-  bs: 32
+  bs: 64

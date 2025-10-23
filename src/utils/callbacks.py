@@ -70,9 +70,9 @@ class ExperimentResultsCallback(Callback):
                         save_path=self.tracker.results_dir / "training_curves.png",
                     )
                 except ImportError:
-                    print("⚠️  matplotlib 未安装,跳过训练曲线绘制")
+                    print("[WARNING] matplotlib 未安装,跳过训练曲线绘制")
                 except Exception as e:
-                    print(f"⚠️  训练曲线绘制失败: {e}")
+                    print(f"[WARNING] 训练曲线绘制失败: {e}")
 
     def on_test_batch_end(
         self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0
@@ -118,12 +118,12 @@ class ExperimentResultsCallback(Callback):
         self.tracker.save_summary(summary)
 
         print("\n" + "=" * 60)
-        print(f"✅ 实验结果已保存到: {self.tracker.exp_dir}")
+        print(f"[SUCCESS] 实验结果已保存到: {self.tracker.exp_dir}")
         print("=" * 60)
-        print(f"📊 配置文件: {self.tracker.exp_dir / 'config.yaml'}")
-        print(f"📈 指标文件: {self.tracker.results_dir / 'metrics_final.json'}")
-        print(f"📁 检查点: {self.tracker.checkpoints_dir}")
-        print(f"📝 日志: {self.tracker.logs_dir}")
+        print(f"[CONFIG] 配置文件: {self.tracker.exp_dir / 'config.yaml'}")
+        print(f"[METRICS] 指标文件: {self.tracker.results_dir / 'metrics_final.json'}")
+        print(f"[CHECKPOINT] 检查点: {self.tracker.checkpoints_dir}")
+        print(f"[LOGS] 日志: {self.tracker.logs_dir}")
         print("=" * 60)
 
 

@@ -2,11 +2,19 @@
 # URL 数据配置（字符级）
 
 data:
+  csv_path: ${oc.env:DATA_ROOT,data/processed}/master.csv
   train_csv: ${oc.env:DATA_ROOT,data/processed}/url_train.csv
   val_csv: ${oc.env:DATA_ROOT,data/processed}/url_val.csv
   test_csv: ${oc.env:DATA_ROOT,data/processed}/url_test.csv
   num_workers: 4
-
-  # 数据列名
   text_col: url_text
   label_col: label
+  timestamp_col: timestamp
+  brand_col: brand
+  source_col: source
+  min_len: 1
+  batch_format: tuple
+  split_ratios:
+    train: 0.7
+    val: 0.15
+    test: 0.15

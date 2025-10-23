@@ -1,0 +1,4 @@
+- train.epochs=1
+- train.bs=8
+- hardware.devices=1
+- data.num_workers=0

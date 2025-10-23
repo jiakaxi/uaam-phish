@@ -1,0 +1,3 @@
+- train.epochs=1
+- train.bs=4
+- hardware.devices=1

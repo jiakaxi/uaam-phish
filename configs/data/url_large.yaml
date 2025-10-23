@@ -1,0 +1,23 @@
+# @package _global_
+# 大数据集URL配置
+
+defaults:
+  - url_only
+
+# 覆盖数据路径（使用环境变量）
+data:
+  csv_path: ${oc.env:DATA_ROOT,data/processed}/master.csv
+  train_csv: ${oc.env:DATA_ROOT,data/processed}/url_train.csv
+  val_csv: ${oc.env:DATA_ROOT,data/processed}/url_val.csv
+  test_csv: ${oc.env:DATA_ROOT,data/processed}/url_test.csv
+  num_workers: 16  # 大数据集使用更多worker
+
+# 训练参数优化
+train:
+  batch_size: 128  # 更大批次提升效率
+  epochs: 50
+  patience: 10  # 更多耐心等待收敛
+
+# 可选：数据采样（用于快速验证）
+# data:
+#   sample_fraction: 0.1  # 取消注释以使用10%数据
