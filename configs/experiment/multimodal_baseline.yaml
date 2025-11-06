@@ -1,0 +1,107 @@
+# @package _global_
+#
+# 多模态拼接基线实验配置 (S0: Early Fusion Baseline)
+#
+# 运行命令：
+#   python scripts/train_hydra.py experiment=multimodal_baseline
+#   python scripts/train_hydra.py experiment=multimodal_baseline datamodule.split_protocol=brand_ood
+#   python scripts/train_hydra.py experiment=multimodal_baseline datamodule.split_protocol=temporal
+
+defaults:
+  - override /model: multimodal_baseline
+  - override /trainer: default
+
+# 显式指定 system 和 datamodule（Hydra 实例化）
+# 注意: _recursive_=false 防止Hydra递归实例化cfg中的嵌套_target_
+system:
+  _target_: src.systems.multimodal_baseline.MultimodalBaselineSystem
+  _recursive_: false
+  # 从 model config 继承参数
+  url_vocab_size: ${model.url_vocab_size}
+  url_embed_dim: ${model.url_embed_dim}
+  url_hidden_dim: ${model.url_hidden_dim}
+  url_num_layers: ${model.url_num_layers}
+  url_max_len: ${model.url_max_len}
+  html_model_name: ${model.html_model_name}
+  html_hidden_dim: ${model.html_hidden_dim}
+  html_projection_dim: ${model.html_projection_dim}
+  html_freeze_bert: ${model.html_freeze_bert}
+  visual_model_name: ${model.visual_model_name}
+  visual_pretrained: ${model.visual_pretrained}
+  visual_projection_dim: ${model.visual_projection_dim}
+  visual_freeze_backbone: ${model.visual_freeze_backbone}
+  learning_rate: ${model.learning_rate}
+  weight_decay: ${model.weight_decay}
+  dropout: ${model.dropout}
+  pos_weight: ${model.pos_weight}
+
+datamodule:
+  _target_: src.data.multimodal_datamodule.MultimodalDataModule
+  _recursive_: false
+  master_csv: "data/processed/master_v2.csv"
+  split_protocol: "random"
+  use_presplit: true  # 使用 CSV 中的 'split' 列
+  batch_size: 32  # 降低 batch size 避免内存问题
+  num_workers: 2  # 降低 num_workers
+  pin_memory: true
+  use_augmentation: false
+  url_max_len: 200
+  url_vocab_size: 128
+  html_max_len: 256  # 降低 HTML 长度避免内存问题
+  image_dir: "data/processed/screenshots"
+
+# Paths configuration
+paths:
+  data_dir: "data"
+  output_dir: "${hydra:runtime.output_dir}"
+
+# Run metadata
+run:
+  name: "mm_baseline_${datamodule.split_protocol}_${now:%Y%m%d_%H%M%S}"
+  tags: ["multimodal", "baseline", "concat", "early_fusion", "${datamodule.split_protocol}"]
+  notes: "S0: Multimodal concatenation baseline (Early Fusion, logits-only head)"
+
+# Trainer configuration
+trainer:
+  max_epochs: 30
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 50
+  precision: 16  # Mixed precision training (faster, lower memory)
+  gradient_clip_val: 1.0  # Gradient clipping for stability
+
+  # Callbacks
+  callbacks:
+    - _target_: pytorch_lightning.callbacks.ModelCheckpoint
+      dirpath: "${paths.output_dir}/checkpoints"
+      filename: "epoch={epoch:02d}-val_auroc={val/auroc:.3f}"
+      monitor: "val/auroc"
+      mode: "max"
+      save_top_k: 3
+      save_last: true
+      auto_insert_metric_name: false
+
+    - _target_: pytorch_lightning.callbacks.EarlyStopping
+      monitor: "val/auroc"
+      patience: 10
+      mode: "max"
+      min_delta: 0.001
+
+    - _target_: pytorch_lightning.callbacks.LearningRateMonitor
+      logging_interval: "epoch"
+
+# Logging configuration
+logger:
+  wandb:
+    project: "uaam-phish"
+    name: ${run.name}
+    tags: ${run.tags}
+    notes: ${run.notes}
+    save_dir: "${paths.output_dir}"
+
+# Paths (using default from paths/default.yaml)
+# paths:
+#   data_dir: "data"
+#   output_dir: "experiments/${run.name}"
+
+# Seed for reproducibility
+seed: 42

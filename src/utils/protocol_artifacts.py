@@ -18,6 +18,242 @@ from src.utils.metrics import compute_ece
 log = get_logger(__name__)
 
 
+class ArtifactsWriter:
+    """
+    Utility class for saving validation/test artifacts in multimodal systems.
+
+    Artifacts saved:
+    - preds_{val,test}.csv: predictions with columns [id, y_true, logit, prob]
+    - metrics_{val,test}.json: metrics dict (acc, auroc, f1, ece, nll, brier)
+    - roc_{val,test}.png: ROC curve with AUC annotation
+    - reliability_{val,test}_before_ts.png: calibration curve with ECE
+    - splits_overview.json: split metadata (if available)
+    """
+
+    def __init__(self, lightning_module):
+        """
+        Args:
+            lightning_module: PyTorch Lightning module (for accessing trainer/logger)
+        """
+        self.module = lightning_module
+
+        # Get artifacts directory from trainer log_dir
+        if (
+            hasattr(lightning_module.trainer, "log_dir")
+            and lightning_module.trainer.log_dir
+        ):
+            self.output_dir = Path(lightning_module.trainer.log_dir) / "artifacts"
+        else:
+            # Fallback to current directory
+            self.output_dir = Path("./artifacts")
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+
+    def save_validation_artifacts(self, preds_list):
+        """
+        Save validation artifacts.
+
+        Args:
+            preds_list: List of dicts with keys {id, y_true, logit, prob}
+        """
+        self._save_artifacts(preds_list, stage="val")
+
+    def save_test_artifacts(self, preds_list):
+        """
+        Save test artifacts.
+
+        Args:
+            preds_list: List of dicts with keys {id, y_true, logit, prob}
+        """
+        self._save_artifacts(preds_list, stage="test")
+
+    def _save_artifacts(self, preds_list, stage: str):
+        """
+        Internal method to save artifacts for a given stage.
+
+        Args:
+            preds_list: List of prediction dicts
+            stage: "val" or "test"
+        """
+        if len(preds_list) == 0:
+            log.warning(f"No predictions to save for stage '{stage}'")
+            return
+
+        import torch
+        import pandas as pd
+        import matplotlib.pyplot as plt
+        from sklearn.metrics import (
+            roc_curve,
+            auc,
+            accuracy_score,
+            f1_score,
+            roc_auc_score,
+        )
+
+        # Concatenate predictions
+        ids = []
+        y_true_list = []
+        logits_list = []
+        probs_list = []
+
+        for batch_preds in preds_list:
+            if batch_preds.get("id") is not None:
+                ids.extend(
+                    batch_preds["id"]
+                    if isinstance(batch_preds["id"], list)
+                    else batch_preds["id"].tolist()
+                )
+            y_true_list.append(batch_preds["y_true"])
+            logits_list.append(batch_preds["logit"])
+            probs_list.append(batch_preds["prob"])
+
+        y_true = torch.cat(y_true_list).cpu().numpy()
+        logits = torch.cat(logits_list).cpu().numpy()
+        probs = torch.cat(probs_list).cpu().numpy()
+
+        # Ensure 1D arrays
+        if y_true.ndim > 1:
+            y_true = y_true.squeeze()
+        if logits.ndim > 1:
+            logits = logits.squeeze()
+        if probs.ndim > 1:
+            probs = probs.squeeze()
+
+        y_pred = (probs > 0.5).astype(int)
+
+        # 1. Save predictions CSV
+        preds_path = self.output_dir / f"preds_{stage}.csv"
+        df_preds = pd.DataFrame(
+            {
+                "id": ids if ids else range(len(y_true)),
+                "y_true": y_true,
+                "logit": logits,
+                "prob": probs,
+                "y_pred": y_pred,
+            }
+        )
+        df_preds.to_csv(preds_path, index=False)
+        log.info(f">> Saved predictions: {preds_path}")
+
+        # 2. Compute metrics
+        try:
+            acc = accuracy_score(y_true, y_pred)
+            auroc = roc_auc_score(y_true, probs)
+            f1 = f1_score(y_true, y_pred, average="macro")
+        except Exception as e:
+            log.warning(f"Failed to compute metrics: {e}")
+            acc = auroc = f1 = 0.0
+
+        # ECE/NLL/Brier (placeholder for now, will be filled after temperature scaling)
+        ece = nll = brier = 0.0
+        ece_bins = 10
+
+        # Try to compute ECE if available
+        try:
+            ece, ece_bins = compute_ece(y_true, probs, n_bins=None, pos_label=1)
+        except Exception as e:
+            log.warning(f"Failed to compute ECE: {e}")
+
+        # 3. Save metrics JSON
+        metrics_path = self.output_dir / f"metrics_{stage}.json"
+        metrics_dict = {
+            "accuracy": float(acc),
+            "auroc": float(auroc),
+            "f1_macro": float(f1),
+            "nll": float(nll),  # TODO: 待温度缩放后更新
+            "ece": float(ece),
+            "brier": float(brier),  # TODO: 待温度缩放后更新
+            "ece_bins_used": int(ece_bins),
+            "positive_class": "phishing",
+            "artifacts": {
+                "preds_path": f"preds_{stage}.csv",
+                "roc_path": f"roc_{stage}.png",
+                "reliability_path": f"reliability_{stage}_before_ts.png",
+            },
+            "warnings": {
+                "temperature_scaling": "Not applied yet (baseline model)",
+            },
+        }
+
+        with open(metrics_path, "w", encoding="utf-8") as f:
+            json.dump(metrics_dict, f, indent=2, ensure_ascii=False)
+        log.info(f">> Saved metrics: {metrics_path}")
+
+        # 4. Save ROC curve
+        roc_path = self.output_dir / f"roc_{stage}.png"
+        try:
+            fpr, tpr, _ = roc_curve(y_true, probs, pos_label=1)
+            roc_auc = auc(fpr, tpr)
+
+            plt.figure(figsize=(8, 6))
+            plt.plot(
+                fpr,
+                tpr,
+                color="darkorange",
+                lw=2,
+                label=f"ROC curve (AUC = {roc_auc:.3f})",
+            )
+            plt.plot([0, 1], [0, 1], color="navy", lw=2, linestyle="--", label="Random")
+            plt.xlim([0.0, 1.0])
+            plt.ylim([0.0, 1.05])
+            plt.xlabel("False Positive Rate")
+            plt.ylabel("True Positive Rate")
+            plt.title(f"ROC Curve ({stage.upper()})")
+            plt.legend(loc="lower right")
+            plt.grid(alpha=0.3)
+            plt.tight_layout()
+            plt.savefig(roc_path, dpi=150)
+            plt.close()
+            log.info(f">> Saved ROC curve: {roc_path}")
+        except Exception as e:
+            log.warning(f"Failed to save ROC curve: {e}")
+
+        # 5. Save reliability diagram (calibration curve)
+        reliability_path = self.output_dir / f"reliability_{stage}_before_ts.png"
+        try:
+            from sklearn.calibration import calibration_curve
+
+            prob_true, prob_pred = calibration_curve(
+                y_true, probs, n_bins=ece_bins, strategy="uniform"
+            )
+
+            plt.figure(figsize=(8, 6))
+            plt.plot(prob_pred, prob_true, marker="o", linewidth=2, label="Model")
+            plt.plot(
+                [0, 1],
+                [0, 1],
+                linestyle="--",
+                color="gray",
+                label="Perfect calibration",
+            )
+            plt.xlabel("Predicted Probability")
+            plt.ylabel("True Probability")
+            plt.title(f"Calibration Curve ({stage.upper()}) - ECE = {ece:.4f}")
+            plt.legend(loc="upper left")
+            plt.grid(alpha=0.3)
+
+            # Add warning if bins were reduced
+            if ece_bins < 10:
+                plt.text(
+                    0.5,
+                    0.05,
+                    f"⚠ Bins reduced to {ece_bins} due to small sample size",
+                    ha="center",
+                    fontsize=9,
+                    color="red",
+                    transform=plt.gca().transAxes,
+                )
+
+            plt.tight_layout()
+            plt.savefig(reliability_path, dpi=150)
+            plt.close()
+            log.info(f">> Saved calibration curve: {reliability_path}")
+        except Exception as e:
+            log.warning(f"Failed to save calibration curve: {e}")
+
+        log.info(f">> All {stage} artifacts saved to: {self.output_dir}\n")
+
+
 class ProtocolArtifactsCallback(Callback):
     """
     Callback to generate and save protocol-specific artifacts after testing.

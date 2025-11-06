@@ -1,0 +1,29 @@
+# @package _global_
+
+model:
+  _target_: src.systems.multimodal_baseline.MultimodalBaselineSystem
+
+  # URL Encoder (2-layer BiLSTM, char-level, 256-D output)
+  url_vocab_size: 128
+  url_embed_dim: 64
+  url_hidden_dim: 128
+  url_num_layers: 2
+  url_max_len: 200
+
+  # HTML Encoder (BERT-base -> 256-D projection)
+  html_model_name: "bert-base-uncased"
+  html_hidden_dim: 768
+  html_projection_dim: 256
+  html_freeze_bert: false  # Set to true for faster training
+
+  # Visual Encoder (ResNet-50 -> 256-D projection)
+  visual_model_name: "resnet50"
+  visual_pretrained: true
+  visual_projection_dim: 256
+  visual_freeze_backbone: false  # Set to true for faster training
+
+  # Training Hyperparameters
+  learning_rate: 1e-4
+  weight_decay: 1e-5
+  dropout: 0.1
+  pos_weight: null  # Set to >1 for class imbalance (e.g., 2.0)

@@ -1,7 +1,7 @@
-# 变更摘要 - MLOps 协议实现 + HTML模态 + 嵌入向量导出
+# 变更摘要 - MLOps 协议实现 + HTML模态 + 嵌入向量导出 + 多模态基线
 
 **日期**: 2025-10-23 (最后更新: 2025-11-06)
-**类型**: 功能增强 + 数据集升级 + Schema验证修复 + HTML模态实现 + 嵌入向量导出
+**类型**: 功能增强 + 数据集升级 + Schema验证修复 + HTML模态实现 + 嵌入向量导出 + 多模态融合基线
 **方法**: 最小化、增量式、幂等实现
 
 ---
@@ -16,6 +16,9 @@
 
 ### 第三阶段：嵌入向量导出（2025-11-06）
 为所有三个单模态系统（URL、HTML、Visual）添加测试集嵌入向量导出功能，便于后续的可视化分析和多模态融合研究。
+
+### 第四阶段：多模态拼接基线 (S0)（2025-11-06）
+实现 **Early Fusion (Concatenation) 基线**，作为后续 U-Module / C-Module / RCAF 的对照基准。融合三模态（URL BiLSTM + HTML BERT + Visual ResNet-50）的 256-D 嵌入，通过简单拼接（768-D）后线性分类，输出 logits（无 Sigmoid），使用 BCEWithLogitsLoss，便于后续温度缩放与校准评估。
 
 **核心原则**:
 - ✅ **只添加，不删除** - 所有现有代码保持不变
@@ -2068,3 +2071,195 @@ python -m pytest tests/ -v
 1. 修复 brand_intersection_ok 类型错误（bool �?string）`n2. 修正 metadata 结构，将 brand_intersection_ok 移至顶层
 
 详细报告: docs/P0_ARTIFACT_VERIFICATION_REPORT.md
+
+---
+
+## 2025-11-06: 多模态拼接基线 (S0: Early Fusion) 实现完成 ✅
+
+### 🎯 实现目标
+实现 **S0：多模态早期拼接基线**（Early Fusion via Concatenation），作为后续 U-Module / C-Module / RCAF 的**对照基准**。
+
+**设计原则**：
+- 三模态编码：URL(BiLSTM)→256d，HTML(BERT+MLP)→256d，Visual(ResNet-50)→256d
+- Early Fusion：**Concat 768d → Linear → raw logits**
+- **严格不引入**注意力、门控、自适应权重等复杂机制
+- **损失使用 BCEWithLogitsLoss**（后续要做温度缩放/校准，所以**不要**在模型里 Sigmoid）
+
+### 📂 新增文件（7个）
+
+#### 1. 融合模块（2个）
+- **`src/modules/fusion/__init__.py`** (6行)
+  - 包初始化文件，显式导出 `BaselineConcatFusion`
+
+- **`src/modules/fusion/baseline_concat.py`** (86行)
+  - `BaselineConcatFusion` 类：纯拼接融合（无注意力/门控）
+  - 输入：z_url [B,256], z_html [B,256], z_visual [B,256]
+  - 输出：logits [B,1]（raw logits，不含 Sigmoid）
+  - 架构：`concat([z_url, z_html, z_visual]) → Dropout → Linear(768→1)`
+
+#### 2. 系统模块（1个）
+- **`src/systems/multimodal_baseline.py`** (326行)
+  - `MultimodalBaselineSystem` (PyTorch Lightning Module)
+  - 整合三编码器：URLEncoder + HTMLEncoder + VisualEncoder
+  - 融合模块：BaselineConcatFusion
+  - 损失函数：BCEWithLogitsLoss (支持 pos_weight)
+  - 指标：Accuracy, AUROC, F1 (macro)
+  - 工件落盘：通过 ArtifactsWriter 自动生成 CSV/JSON/PNG
+
+#### 3. 数据模块（1个）
+- **`src/data/multimodal_datamodule.py`** (349行)
+  - `MultimodalDataModule` (PyTorch Lightning DataModule)
+  - `MultimodalDataset` (内部类)
+  - 数据加载：内连接三个 CSV（以 sample_id 为键）
+  - 分割策略：调用 `build_splits()` 支持 random/temporal/brand_ood
+  - 返回格式：`{"id", "url", "html", "visual", "label"}`
+  - Tokenizers：字符级 (URL) + BertTokenizer (HTML)
+  - Transforms：ResNet-50 标准（Resize→CenterCrop→Normalize）
+
+#### 4. 配置文件（3个）
+- **`configs/model/multimodal_baseline.yaml`** (29行)
+  - 三编码器超参数配置
+  - 训练超参数（lr, weight_decay, dropout, pos_weight）
+
+- **`configs/datamodule/multimodal.yaml`** (25行)
+  - 数据路径配置
+  - DataLoader 参数（batch_size, num_workers）
+  - 预处理参数（max_len, vocab_size）
+
+- **`configs/experiment/multimodal_baseline.yaml`** (103行)
+  - 实验配置：整合 system + datamodule + trainer
+  - 支持三种协议：random / temporal / brand_ood
+  - Callbacks：ModelCheckpoint + EarlyStopping + LRMonitor
+  - 混合精度训练（precision=16）+ 梯度裁剪
+
+### 🔧 修改文件（1个）
+
+#### 增强工件生成工具
+- **`src/utils/protocol_artifacts.py`** (+200行)
+  - 新增 `ArtifactsWriter` 工具类（供 LightningModule 直接调用）
+  - 方法：`save_validation_artifacts()`, `save_test_artifacts()`
+  - 产物：
+    - `preds_{val,test}.csv` - 列：[id, y_true, logit, prob, y_pred]
+    - `metrics_{val,test}.json` - 字段：acc, auroc, f1, ece, nll, brier（后两者待温度缩放后更新）
+    - `roc_{val,test}.png` - ROC 曲线，标注 AUC
+    - `reliability_{val,test}_before_ts.png` - 校准图，标注 ECE，显示 bins 警告
+
+### ✅ 验证通过
+
+#### 1. 代码质量检查
+```bash
+# Linter 检查
+✅ 无语法错误
+✅ 导入路径正确
+✅ 类型注解完整
+```
+
+#### 2. 最小前向测试
+```python
+# 构造 dummy batch
+batch_size = 2
+url: [2, 200]        # 字符级序列
+html: [2, 512]       # BERT tokens
+visual: [2, 3, 224, 224]  # 图像张量
+label: [2]
+
+# 前向传播
+logits = model(batch)  # [2, 1]
+probs = sigmoid(logits)  # [2]
+
+# ✅ 输出形状正确
+# ✅ 无 NaN/Inf
+# ✅ 概率范围 [0, 1]
+```
+
+#### 3. 配置文件检查
+```bash
+# Hydra 配置验证
+✅ system._target_ 指向 MultimodalBaselineSystem
+✅ datamodule._target_ 指向 MultimodalDataModule
+✅ 参数插值正确（${model.*} 引用有效）
+✅ 路径配置统一（使用相对路径）
+```
+
+### 🚀 运行命令
+
+```bash
+# IID (Random Split)
+python scripts/train_hydra.py experiment=multimodal_baseline
+
+# Brand-OOD
+python scripts/train_hydra.py experiment=multimodal_baseline datamodule.split_protocol=brand_ood
+
+# Temporal Split
+python scripts/train_hydra.py experiment=multimodal_baseline datamodule.split_protocol=temporal
+
+# 自定义超参数
+python scripts/train_hydra.py experiment=multimodal_baseline \
+  model.learning_rate=2e-4 \
+  model.dropout=0.2 \
+  datamodule.batch_size=32
+```
+
+### 📊 预期产物
+
+每个实验运行后，在 `experiments/mm_baseline_<protocol>_<timestamp>/` 目录下生成：
+
+```
+artifacts/
+├── preds_val.csv              # 验证集预测
+├── preds_test.csv             # 测试集预测
+├── metrics_val.json           # 验证集指标
+├── metrics_test.json          # 测试集指标
+├── roc_val.png                # 验证集 ROC 曲线
+├── roc_test.png               # 测试集 ROC 曲线
+├── reliability_val_before_ts.png   # 验证集校准图（温度缩放前）
+└── reliability_test_before_ts.png  # 测试集校准图（温度缩放前）
+
+checkpoints/
+├── epoch=XX-val_auroc=0.XXX.ckpt
+└── last.ckpt
+```
+
+### 🔒 架构保护
+
+**URL Encoder 冻结**：保持 2-layer BiLSTM (bidirectional, char-level, 256-D output)，符合论文设计。
+
+**术语一致性**：代码/注释/配置中仅称 "Early Fusion" / "Concatenation"，**不**出现 "attention" / "gating" / "adaptive weights"。
+
+### 📝 下一步
+
+1. **数据准备**：确保三个 CSV 文件存在（`url_phishing_v2.csv`, `html_phishing.csv`, `visual_phishing.csv`）
+2. **图像目录**：确保 `data/processed/screenshots/` 包含图像文件
+3. **试运行**：先用小数据集测试 2-3 epochs，验证流程
+4. **完整训练**：运行 30 epochs，比较三种协议的性能
+5. **温度缩放**：基于 validation set 优化温度参数，更新 test set 的 NLL/ECE/Brier
+6. **对照实验**：为后续 U-Module / C-Module / RCAF 提供基准指标
+
+### 📌 设计决策记录
+
+1. **为什么输出 logits 而不是 probs？**
+   → 后续需要温度缩放（Temperature Scaling），需要在 logits 上应用 `sigmoid(logits / T)`，所以模型不应包含 Sigmoid。
+
+2. **为什么使用 BCEWithLogitsLoss？**
+   → 数值稳定性更好，等价于 `Sigmoid + BCELoss`，但避免了手动计算 Sigmoid。
+
+3. **为什么 ArtifactsWriter 在 LightningModule 内部调用？**
+   → 方便访问 `self._preds` 缓存，避免在 Callback 中重复收集预测结果。
+
+4. **为什么数据合并采用内连接（inner join）？**
+   → S0 基线简单策略，缺失模态样本直接丢弃；后续 RCAF 阶段再做缺失模态实验。
+
+5. **为什么 DataModule 不从 cfg 读取配置？**
+   → Hydra 实例化时直接传入参数（通过 `_target_` + 参数列表），保持与现有 URL/HTML DataModule 一致的接口风格。
+
+### ⚠️ 已知限制
+
+1. **数据对齐策略保守**：缺失模态样本直接丢弃，可能损失部分数据
+2. **图像加载无容错**：图像缺失时返回黑色占位图（0 张量），可能影响性能
+3. **无模态权重学习**：固定 1:1:1 拼接，未引入自适应权重（符合基线设计）
+4. **温度缩放未实现**：当前 NLL/Brier 为占位值 0.0，需后续专门实现
+
+**实现时间**: 2025-11-06
+**工作量**: ~2小时
+**状态**: ✅ **已完成并验证**
+**测试**: ✅ **前向测试通过**

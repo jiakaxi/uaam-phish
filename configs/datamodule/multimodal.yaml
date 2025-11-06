@@ -1,0 +1,24 @@
+# @package _global_
+
+datamodule:
+  _target_: src.data.multimodal_datamodule.MultimodalDataModule
+
+  # Data paths
+  url_data_path: "data/processed/url_phishing_v2.csv"
+  html_data_path: "data/processed/html_phishing.csv"
+  visual_data_path: "data/processed/visual_phishing.csv"
+
+  # Split protocol (random / temporal / brand_ood)
+  split_protocol: "random"
+
+  # DataLoader settings
+  batch_size: 64
+  num_workers: 4
+  pin_memory: true
+
+  # Data preprocessing
+  use_augmentation: false  # Set to true for training augmentation
+  url_max_len: 200
+  url_vocab_size: 128
+  html_max_len: 512
+  image_dir: "data/processed/screenshots"
