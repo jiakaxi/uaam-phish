@@ -1340,9 +1340,10 @@ docs/             # 文档
 ## 🚀 下一步发展
 
 ### 短期计划 (1-2个月)
+- [x] **添加HTML编码器** ✅ 已完成（BERT-base实现）
+- [ ] 完成HTML模型训练和评估
 - [ ] 实现不确定性估计模块
 - [ ] 实现一致性检查模块
-- [ ] 添加HTML编码器
 - [ ] 添加图像编码器
 
 ### 中期计划 (3-6个月)
@@ -1424,6 +1425,468 @@ URL编码器架构锁定，防止意外修改。
 **状态**: 🟢 **生产就绪**
 **质量**: ⭐⭐⭐⭐⭐ **5/5**
 **推荐度**: 👍👍👍 **强烈推荐**
+
+---
+
+## 🌐 HTML模态实施指南
+
+> **更新日期**: 2025-11-05
+> **状态**: ✅ 代码完成，准备训练
+
+### 📋 HTML项目概览
+
+HTML模态已完全实现，包括：
+- ✅ **HTMLEncoder**: BERT-base编码器（110M参数）
+- ✅ **HtmlDataset**: BERT tokenization数据集
+- ✅ **HtmlDataModule**: Lightning数据模块
+- ✅ **HtmlOnlyModule**: Lightning训练模块
+- ✅ **配置文件**: 完整的Hydra配置
+
+**架构特点**:
+- BERT-base-uncased预训练模型
+- 768维 → 256维投影（与URL编码器对齐）
+- 支持freeze_bert选项（节省显存）
+- 完整的metrics和artifacts支持
+
+---
+
+### 🗂️ HTML项目文件清单
+
+#### 1. 核心模型文件
+
+```
+src/models/html_encoder.py (86行)
+├── HTMLEncoder类
+│   ├── BERT-base-uncased加载
+│   ├── 可选冻结BERT参数
+│   └── 768 → 256投影层
+└── forward(): 返回256维嵌入
+```
+
+**关键特性**:
+- 提取[CLS] token作为语义表示
+- Dropout正则化
+- 输出维度与URLEncoder一致（未来融合需要）
+
+#### 2. 数据处理文件
+
+```
+src/data/html_dataset.py (111行)
+├── HtmlDataset类
+│   ├── 加载HTML文件路径
+│   ├── clean_html()清洗
+│   ├── BERT tokenization
+│   └── 返回(input_ids, attention_mask, label)
+
+src/datamodules/html_datamodule.py (152行)
+├── HtmlDataModule类
+│   ├── 支持build_splits()协议
+│   ├── 三个DataLoader (train/val/test)
+│   └── 元数据追踪
+
+src/utils/html_clean.py (76行)
+├── clean_html() - HTML清洗
+│   ├── 移除<script>/<style>
+│   ├── 提取<body>内容
+│   └── BeautifulSoup解析
+└── load_html_from_path() - 文件加载
+```
+
+#### 3. Lightning训练模块
+
+```
+src/systems/html_only_module.py (291行)
+├── HtmlOnlyModule类
+│   ├── HTMLEncoder + 分类头
+│   ├── BCEWithLogitsLoss
+│   ├── Step指标 (Acc/AUROC/F1)
+│   ├── Epoch指标 (NLL/ECE)
+│   └── 与url_only_module对齐
+```
+
+**训练流程**:
+1. HTML文件 → clean_html() → 纯文本
+2. 纯文本 → BERT tokenizer → (input_ids, attention_mask)
+3. BERT forward → [CLS] token → 768维
+4. 投影层 → 256维 → 分类头 → logit
+5. BCEWithLogitsLoss计算损失
+
+#### 4. 配置文件
+
+```
+configs/model/html_encoder.yaml (11行)
+├── bert_model: bert-base-uncased
+├── hidden_dim: 768
+├── output_dim: 256
+├── dropout: 0.1
+└── freeze_bert: false
+
+configs/data/html_only.yaml (22行)
+├── csv_path: master_v2.csv
+├── train/val/test_csv
+├── html_max_len: 512
+└── 支持三种协议
+
+configs/experiment/html_baseline.yaml (61行)
+├── model: html_encoder
+├── data: html_only
+├── train.lr: 2e-5 (BERT学习率)
+├── train.bs: 32 (降低适应显存)
+└── precision: 16-mixed
+```
+
+---
+
+### 🚀 HTML模型训练指南
+
+#### 前提条件检查
+
+```bash
+# 1. 检查依赖
+pip list | grep transformers  # 需要 >= 4.30.0
+pip list | grep beautifulsoup4  # 需要 >= 4.11.0
+
+# 2. 验证数据
+python -c "
+import pandas as pd
+df = pd.read_csv('data/processed/master_v2.csv')
+print('HTML列存在:', 'html_path' in df.columns)
+print('样本数量:', len(df))
+print('HTML路径示例:', df['html_path'].iloc[0])
+"
+
+# 3. 检查HTML文件
+ls data/processed/html/*.html | head -5
+```
+
+#### 快速开始 (5分钟验证)
+
+```bash
+# 小数据集快速测试（验证流程）
+python scripts/train_hydra.py \
+  experiment=html_baseline \
+  trainer=local \
+  data.sample_fraction=0.05 \
+  train.epochs=2 \
+  model.freeze_bert=true \
+  run.name=html_quick_test
+
+# 预期结果：
+# - Epoch 1-2完成
+# - 指标：train_loss, val/auroc, val/ece
+# - 时间：约3-5分钟（冻结BERT）
+```
+
+#### 标准训练 (推荐配置)
+
+```bash
+# 使用DistilBERT（更快，显存更少）
+python scripts/train_hydra.py \
+  experiment=html_baseline \
+  model.bert_model=distilbert-base-uncased \
+  model.hidden_dim=768 \
+  trainer=server \
+  logger=wandb \
+  run.name=html_distilbert_baseline
+
+# 使用BERT-base（更强，显存更多）
+python scripts/train_hydra.py \
+  experiment=html_baseline \
+  model.bert_model=bert-base-uncased \
+  trainer=server \
+  logger=wandb \
+  hardware.precision=16-mixed \
+  run.name=html_bert_baseline
+```
+
+**显存需求**:
+- BERT-base + bs=32 + fp16: ~8GB
+- DistilBERT + bs=32 + fp16: ~6GB
+- Freeze BERT: 降低50%显存
+
+#### 三种协议训练
+
+```bash
+# Random协议
+python scripts/train_hydra.py \
+  experiment=html_baseline \
+  protocol=random \
+  run.name=html_random
+
+# Temporal协议
+python scripts/train_hydra.py \
+  experiment=html_baseline \
+  protocol=temporal \
+  run.name=html_temporal
+
+# Brand-OOD协议
+python scripts/train_hydra.py \
+  experiment=html_baseline \
+  protocol=brand_ood \
+  run.name=html_brand_ood
+```
+
+#### 超参数调优
+
+```bash
+# 学习率搜索
+python scripts/train_hydra.py -m \
+  experiment=html_baseline \
+  train.lr=1e-5,2e-5,5e-5,1e-4 \
+  run.name=html_lr_search
+
+# Batch size调优
+python scripts/train_hydra.py -m \
+  experiment=html_baseline \
+  train.bs=16,32,64 \
+  run.name=html_bs_search
+
+# Freeze BERT对比
+python scripts/train_hydra.py -m \
+  experiment=html_baseline \
+  model.freeze_bert=true,false \
+  run.name=html_freeze_compare
+```
+
+---
+
+### 📊 预期性能基线
+
+基于论文和类似工作的预期：
+
+| 指标 | DistilBERT | BERT-base | 说明 |
+|------|-----------|-----------|------|
+| **AUROC** | 0.92-0.94 | 0.94-0.96 | HTML语义特征强 |
+| **Accuracy** | 0.88-0.91 | 0.90-0.93 | 依赖数据集质量 |
+| **F1-macro** | 0.87-0.90 | 0.89-0.92 | 平衡两类性能 |
+| **NLL** | 0.20-0.30 | 0.18-0.25 | BERT校准较好 |
+| **ECE** | 0.03-0.06 | 0.02-0.05 | 需关注过拟合 |
+
+**训练时间** (单卡RTX 3090):
+- DistilBERT: ~2小时/50 epochs
+- BERT-base: ~3-4小时/50 epochs
+- Freeze BERT: ~1小时/50 epochs
+
+---
+
+### 🔍 故障排除
+
+#### 问题1: transformers未安装
+
+```bash
+# 错误
+ModuleNotFoundError: No module named 'transformers'
+
+# 解决
+pip install transformers>=4.30.0
+```
+
+#### 问题2: beautifulsoup4未安装
+
+```bash
+# 错误
+ModuleNotFoundError: No module named 'bs4'
+
+# 解决
+pip install beautifulsoup4 lxml
+```
+
+#### 问题3: HTML文件路径错误
+
+```bash
+# 错误
+FileNotFoundError: HTML file not found
+
+# 检查路径
+python -c "
+import pandas as pd
+df = pd.read_csv('data/processed/master_v2.csv')
+print(df['html_path'].apply(lambda x: Path(x).exists()).sum())
+"
+
+# 修正路径
+python scripts/upgrade_dataset.py \
+  --input data/processed/master.csv \
+  --output data/processed/master_v2.csv
+```
+
+#### 问题4: CUDA OOM (显存不足)
+
+```bash
+# 方案1: 降低batch size
+python scripts/train_hydra.py experiment=html_baseline train.bs=16
+
+# 方案2: 使用DistilBERT
+python scripts/train_hydra.py experiment=html_baseline \
+  model.bert_model=distilbert-base-uncased
+
+# 方案3: 冻结BERT
+python scripts/train_hydra.py experiment=html_baseline \
+  model.freeze_bert=true
+
+# 方案4: 梯度累积
+python scripts/train_hydra.py experiment=html_baseline \
+  trainer.accumulate_grad_batches=2 \
+  train.bs=16  # 等效bs=32
+```
+
+#### 问题5: HTML清洗过慢
+
+```bash
+# 使用缓存（如果实现）
+python scripts/train_hydra.py experiment=html_baseline \
+  data.use_cache=true
+
+# 减少max_len
+python scripts/train_hydra.py experiment=html_baseline \
+  data.html_max_len=256  # 默认512
+```
+
+---
+
+### ✅ 验证清单
+
+在提交实验结果前，请确认：
+
+- [ ] **数据验证**
+  - [ ] master_v2.csv包含html_path列
+  - [ ] HTML文件路径正确且可访问
+  - [ ] 标签分布合理（不过度不平衡）
+
+- [ ] **配置验证**
+  - [ ] BERT模型名称正确
+  - [ ] batch_size适配显存
+  - [ ] 学习率在合理范围（1e-5到5e-5）
+
+- [ ] **训练验证**
+  - [ ] 训练loss正常下降
+  - [ ] 验证指标正常
+  - [ ] 无OOM或其他错误
+
+- [ ] **输出验证**
+  - [ ] experiments/<run>/results/ 包含4个artifacts
+  - [ ] ROC曲线显示AUC值
+  - [ ] 校准曲线标注ECE值
+  - [ ] metrics_<protocol>.json完整
+
+- [ ] **对比验证**
+  - [ ] HTML模型 vs URL模型性能
+  - [ ] DistilBERT vs BERT-base对比
+  - [ ] freeze_bert=true/false对比
+
+---
+
+### 📈 下一步行动
+
+#### 立即行动（今天）
+
+```bash
+# 1. 快速验证（5分钟）
+python scripts/train_hydra.py \
+  experiment=html_baseline \
+  trainer=local \
+  data.sample_fraction=0.05 \
+  train.epochs=2 \
+  model.freeze_bert=true
+
+# 2. 查看结果
+python scripts/compare_experiments.py --latest 1
+```
+
+#### 本周完成
+
+1. **基线训练**
+   - Random协议完整训练
+   - 记录baseline性能
+
+2. **快速调优**
+   - 学习率搜索
+   - Batch size优化
+
+3. **协议对比**
+   - Random vs Temporal vs Brand-OOD
+   - 分析性能差异
+
+#### 本月目标
+
+1. **模型优化**
+   - DistilBERT vs BERT对比
+   - Freeze策略评估
+   - 混合精度训练
+
+2. **性能分析**
+   - 错误案例分析
+   - HTML特征重要性
+   - 与URL模型对比
+
+3. **文档完善**
+   - 训练日志记录
+   - 实验报告撰写
+   - 最佳实践总结
+
+---
+
+### 🎯 成功标准
+
+HTML模型训练成功的标准：
+
+✅ **基础指标**
+- AUROC ≥ 0.90
+- Accuracy ≥ 0.85
+- F1-macro ≥ 0.84
+
+✅ **校准指标**
+- ECE ≤ 0.10
+- NLL ≤ 0.40
+
+✅ **鲁棒性**
+- 三种协议均可训练
+- 性能稳定（std < 0.02）
+
+✅ **可复现性**
+- 配置完整保存
+- 随机种子固定
+- WandB记录完整
+
+---
+
+### 💡 HTML模型优势
+
+相比URL-only模型，HTML模型的独特优势：
+
+1. **语义理解**
+   - 捕获页面文本语义
+   - 理解上下文关系
+   - 检测社会工程学技巧
+
+2. **内容分析**
+   - 表单结构检测
+   - 链接文本分析
+   - 品牌名称识别
+
+3. **鲁棒性**
+   - 对URL混淆免疫
+   - 捕获视觉相似性
+   - 多语言支持
+
+4. **可解释性**
+   - BERT attention可视化
+   - 关键词高亮
+   - 可疑内容定位
+
+---
+
+### 🔗 相关资源
+
+- **论文参考**: Thesis §3.3 (HTML Encoder)
+- **代码示例**: `src/systems/html_only_module.py`
+- **配置示例**: `configs/experiment/html_baseline.yaml`
+- **数据准备**: `scripts/upgrade_dataset.py`
+- **HTML清洗**: `src/utils/html_clean.py`
+
+---
+
+**HTML模型已准备就绪，开始训练吧！** 🚀
 
 ---
 

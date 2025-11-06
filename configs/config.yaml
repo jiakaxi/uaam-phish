@@ -6,6 +6,7 @@ defaults:
   - data: url_only
   - trainer: default
   - logger: csv  # 可选: wandb, tensorboard, csv
+  - optional experiment: null  # 可选实验配置
   - _self_
   - override hydra/hydra_logging: default
   - override hydra/job_logging: default

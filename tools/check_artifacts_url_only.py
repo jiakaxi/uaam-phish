@@ -76,7 +76,7 @@ def check_metrics_json(p, protocol):
     bins = int(bins)
     assert 3 <= bins <= 15, f"{p}: ece_bins_used out of range [3,15], got {bins}"
 
-    print("    ✅ Metrics JSON schema valid")
+    print("    [OK] Metrics JSON schema valid")
     print(f"       - accuracy: {j['accuracy']:.4f}")
     print(f"       - auroc: {j['auroc']:.4f}")
     print(f"       - ece: {j['ece']:.4f} (bins={bins})")
@@ -93,7 +93,7 @@ def check_splits_csv(p, protocol):
             assert col in header, f"{p}: missing column `{col}`"
         rows = list(r)
 
-    print(f"    ✅ Splits CSV has all required columns ({len(rows)} splits)")
+    print(f"    [OK] Splits CSV has all required columns ({len(rows)} splits)")
 
     # 协议特定检查
     if protocol == "brand_ood":
@@ -107,7 +107,7 @@ def check_splits_csv(p, protocol):
                 f"    ⚠️  WARNING: brand_intersection_ok should be 'true' for brand_ood (got: {bool_vals})"
             )
         else:
-            print("       - brand_intersection_ok: ✅ true")
+            print("       - brand_intersection_ok: [OK] true")
 
     if protocol == "temporal":
         # tie_policy 应该包含 left-closed
@@ -120,7 +120,7 @@ def check_splits_csv(p, protocol):
                 f"    ⚠️  WARNING: tie_policy should include 'left-closed' for temporal (got: {tie_vals})"
             )
         else:
-            print("       - tie_policy: ✅ left-closed")
+            print("       - tie_policy: [OK] left-closed")
 
     # 检查降级情况
     downgraded = [str(row.get("downgraded_to", "")).strip() for row in rows]
@@ -135,7 +135,7 @@ def check_image_exists(p, name):
     print(f"  [CHECK] {name}: {p}")
     assert os.path.exists(p), f"Missing {name}: {p}"
     assert os.path.getsize(p) > 0, f"{name} is empty: {p}"
-    print(f"    ✅ {name} exists ({os.path.getsize(p)} bytes)")
+    print(f"    [OK] {name} exists ({os.path.getsize(p)} bytes)")
 
 
 def guess_run_root(exp_dir=None):
@@ -150,7 +150,9 @@ def guess_run_root(exp_dir=None):
     # 取最新的 experiments/*/results 目录
     candidates = sorted(glob.glob("experiments/*/results"), key=os.path.getmtime)
     if not candidates:
-        raise SystemExit("❌ No results directories found under experiments/*/results")
+        raise SystemExit(
+            "[ERROR] No results directories found under experiments/*/results"
+        )
     return candidates[-1]
 
 
@@ -173,7 +175,7 @@ def check_protocol(run_root, protocol):
         (mj, "Metrics JSON"),
     ]:
         if not os.path.exists(p):
-            print(f"  ❌ Missing: {name} at {p}")
+            print(f"  [MISSING] {name} at {p}")
             return False
 
     # 逐项检查
@@ -183,13 +185,13 @@ def check_protocol(run_root, protocol):
         check_splits_csv(sp, protocol)
         check_metrics_json(mj, protocol)
 
-        print(f"\n✅ Protocol '{protocol}' artifacts validated!\n")
+        print(f"\n[SUCCESS] Protocol '{protocol}' artifacts validated!\n")
         return True
     except AssertionError as e:
-        print(f"\n❌ Protocol '{protocol}' validation FAILED: {e}\n")
+        print(f"\n[FAILED] Protocol '{protocol}' validation FAILED: {e}\n")
         return False
     except Exception as e:
-        print(f"\n❌ Protocol '{protocol}' validation ERROR: {e}\n")
+        print(f"\n[ERROR] Protocol '{protocol}' validation ERROR: {e}\n")
         return False
 
 
@@ -201,7 +203,7 @@ def main():
 
     exp_dir = sys.argv[1] if len(sys.argv) > 1 else None
     run_root = guess_run_root(exp_dir)
-    print(f"\n📁 Validating results in: {run_root}\n")
+    print(f"\nValidating results in: {run_root}\n")
 
     protocols = ["random", "temporal", "brand_ood"]
     results = {}
@@ -214,15 +216,15 @@ def main():
     print("Summary")
     print("=" * 60)
     for protocol, passed in results.items():
-        status = "✅ PASS" if passed else "❌ FAIL"
+        status = "[PASS]" if passed else "[FAIL]"
         print(f"  {protocol:15s}: {status}")
 
     all_passed = all(results.values())
     if all_passed:
-        print("\n🎉 All protocols passed validation!")
+        print("\n[SUCCESS] All protocols passed validation!")
         sys.exit(0)
     else:
-        print("\n⚠️  Some protocols failed validation. Check logs above.")
+        print("\n[WARNING] Some protocols failed validation. Check logs above.")
         sys.exit(1)
 
 

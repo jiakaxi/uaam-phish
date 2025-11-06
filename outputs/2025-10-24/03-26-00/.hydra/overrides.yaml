@@ -1,0 +1,3 @@
+- logger=wandb
+- run.name=url_baseline_1024_0325
+- train.epochs=5

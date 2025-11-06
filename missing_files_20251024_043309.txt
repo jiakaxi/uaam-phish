@@ -1,0 +1,18 @@
+B路径文件不全的记录：
+============================================================
+
+A路径: phish_page_313
+B路径: 1.fm
+缺失文件: ocr.txt
+
+A路径: phish_page_315
+B路径: 1000projects.org
+缺失文件: ocr.txt
+
+A路径: phish_page_316
+B路径: 1000ps.at
+缺失文件: ocr.txt
+
+A路径: phish_page_317
+B路径: 1000ps.de
+缺失文件: ocr.txt

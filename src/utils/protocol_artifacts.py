@@ -66,8 +66,9 @@ class ProtocolArtifactsCallback(Callback):
         import torch
 
         # Concatenate all predictions
-        y_true = torch.cat(self.test_labels).numpy()
-        y_prob = torch.cat(self.test_probs).numpy()
+        # Convert to float32 first to handle BFloat16 on CPU
+        y_true = torch.cat(self.test_labels).float().numpy()
+        y_prob = torch.cat(self.test_probs).float().numpy()
 
         log.info(f"\n>> Generating artifacts for protocol '{self.protocol}'...")
 
@@ -109,15 +110,18 @@ class ProtocolArtifactsCallback(Callback):
                 split_stats = self.split_metadata["split_stats"]
 
                 # Prepare metadata dict for write_split_table
+                # Convert bool to str for brand_intersection_ok
+                brand_inter = self.split_metadata.get("brand_intersection_ok", "")
+                if isinstance(brand_inter, bool):
+                    brand_inter = "true" if brand_inter else "false"
+
                 metadata_for_csv = {
                     "tie_policy": self.split_metadata.get("tie_policy", ""),
                     "brand_normalization": self.split_metadata.get(
                         "brand_normalization", ""
                     ),
                     "downgraded_to": self.split_metadata.get("downgraded_to", ""),
-                    "brand_intersection_ok": self.split_metadata.get(
-                        "brand_intersection_ok", ""
-                    ),
+                    "brand_intersection_ok": brand_inter,
                 }
 
                 write_split_table(split_stats, splits_path, metadata=metadata_for_csv)
@@ -130,17 +134,20 @@ class ProtocolArtifactsCallback(Callback):
             # Gather logged metrics from trainer
             logged_metrics = trainer.logged_metrics
 
+            # Support both test/metric and test_metric formats
+            def get_metric(name1, name2=None, default=0.0):
+                val = logged_metrics.get(
+                    name1, logged_metrics.get(name2, default) if name2 else default
+                )
+                return val
+
             metrics_dict = {
-                "accuracy": float(
-                    logged_metrics.get(
-                        "test_acc", logged_metrics.get("test_accuracy", 0.0)
-                    )
-                ),
-                "auroc": float(logged_metrics.get("test_auroc", 0.0)),
-                "f1_macro": float(logged_metrics.get("test_f1", 0.0)),
-                "nll": float(logged_metrics.get("test_nll", 0.0)),
-                "ece": float(logged_metrics.get("test_ece", 0.0)),
-                "ece_bins_used": int(logged_metrics.get("test_ece_bins", 10)),
+                "accuracy": float(get_metric("test/acc", "test_acc")),
+                "auroc": float(get_metric("test/auroc", "test_auroc")),
+                "f1_macro": float(get_metric("test/f1", "test_f1")),
+                "nll": float(get_metric("test/nll", "test_nll")),
+                "ece": float(get_metric("test/ece", "test_ece")),
+                "ece_bins_used": int(get_metric("test/ece_bins", "test_ece_bins", 10)),
                 "positive_class": "phishing",
                 "artifacts": {
                     "roc_path": str(roc_path.relative_to(self.results_dir.parent)),

@@ -1,0 +1,76 @@
+# @package _global_
+# Visual-only 基线实验配置
+
+defaults:
+  - override /logger: csv
+  - override /trainer: default
+
+# 实验标识
+run:
+  name: visual_baseline
+  seed: 42
+  tags: [visual-only, baseline, resnet50]
+
+# 显式指定 system 和 datamodule
+system:
+  _target_: src.systems.visual_only_module.VisualOnlyModule
+  _recursive_: false
+
+datamodule:
+  _target_: src.datamodules.visual_datamodule.VisualDataModule
+  _recursive_: false
+
+# 模态标识
+modality: visual
+
+# Model 参数（inline 定义）
+model:
+  _target_: src.models.visual_encoder.VisualEncoder
+  pretrained: true
+  freeze_backbone: false
+  embedding_dim: 256
+  dropout: 0.1
+  pos_weight: null  # 可选：类别不平衡时设置，如 pos_weight: 1.5
+
+# Data 参数覆盖
+data:
+  csv_path: ${oc.env:DATA_ROOT,data/processed}/master_v2.csv
+  image_col: img_path
+  label_col: label
+  id_col: id
+  timestamp_col: timestamp
+  brand_col: brand
+  source_col: source
+  split_col: split
+  num_workers: 4
+  batch_format: tuple
+
+# 训练超参数
+train:
+  epochs: 50
+  lr: 1e-4
+  bs: 32  # 小规模数据集起步值
+  weight_decay: 1e-4
+  log_every: 10
+
+# 评估监控
+eval:
+  monitor: val/auroc
+  patience: 5
+  mode: max
+
+# 硬件配置
+hardware:
+  accelerator: auto
+  devices: 1
+  precision: 32
+
+# 协议配置
+protocol: random
+use_build_splits: true
+
+# Metrics 配置
+metrics:
+  average: macro
+  dist:
+    sync_metrics: false

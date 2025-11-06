@@ -1,0 +1,4 @@
+- experiment=visual_baseline
+- train.epochs=2
+- train.bs=4
+- use_build_splits=false

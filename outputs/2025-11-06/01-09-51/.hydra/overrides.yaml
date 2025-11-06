@@ -1,0 +1,6 @@
+- experiment=html_baseline
+- trainer=local
+- data.sample_fraction=0.05
+- train.epochs=2
+- model.freeze_bert=true
+- run.name=html_working_test

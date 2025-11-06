@@ -1,0 +1,47 @@
+# @package _global_
+# P0 烟雾测试：验证工件生成功能
+# 运行命令: python scripts/train_hydra.py experiment=p0_smoke
+
+defaults:
+  - override /model: url_encoder
+  - override /data: url_only
+  - override /trainer: default
+  - override /logger: csv
+
+run:
+  name: p0_smoke
+  seed: 42
+
+# 协议配置
+protocol: random
+use_build_splits: true
+
+# 训练配置 - 极简配置加快验证速度
+train:
+  epochs: 2  # 仅2轮，快速完成
+  bs: 32
+  lr: 0.0001
+  log_every: 5
+
+# 评估配置
+eval:
+  monitor: val_loss
+  patience: 10
+  mode: min
+
+# 硬件配置
+hardware:
+  accelerator: cpu
+  devices: 1
+  precision: 32
+
+# 确保启用工件生成
+logging:
+  auto_append_docs: false
+  append_to_summary: false
+  append_to_changes: false
+  save_curves: true
+  save_tables: true
+
+# 不保存检查点（加快测试）
+no_save: false

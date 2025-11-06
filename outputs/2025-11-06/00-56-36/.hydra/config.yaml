@@ -1,0 +1,69 @@
+model:
+  _target_: src.models.html_encoder.HTMLEncoder
+  bert_model: bert-base-uncased
+  hidden_dim: 768
+  output_dim: 256
+  dropout: 0.1
+  freeze_bert: true
+data:
+  csv_path: ${oc.env:DATA_ROOT,data/processed}/master_v2.csv
+  train_csv: ${oc.env:DATA_ROOT,data/processed}/html_train_v2.csv
+  val_csv: ${oc.env:DATA_ROOT,data/processed}/html_val_v2.csv
+  test_csv: ${oc.env:DATA_ROOT,data/processed}/html_test_v2.csv
+  num_workers: 4
+  html_col: html_path
+  label_col: label
+  timestamp_col: timestamp
+  brand_col: brand
+  source_col: source
+  html_max_len: 512
+  batch_format: tuple
+  split_ratios:
+    train: 0.7
+    val: 0.15
+    test: 0.15
+  sample_fraction: 0.05
+hardware:
+  accelerator: auto
+  devices: 1
+  precision: 16-mixed
+  num_workers: 0
+train:
+  epochs: 2
+  lr: 2.0e-05
+  bs: 32
+  log_every: 50
+  weight_decay: 0.01
+eval:
+  bs: 64
+  monitor: val/auroc
+  patience: 5
+  mode: max
+logger:
+  _target_: pytorch_lightning.loggers.CSVLogger
+  save_dir: ${hydra:runtime.output_dir}
+  name: ${run.name}
+  version: null
+run:
+  name: html_quick_test
+  seed: 42
+  tags:
+  - html-only
+  - baseline
+  - bert
+system:
+  _target_: src.systems.html_only_module.HtmlOnlyModule
+datamodule:
+  _target_: src.datamodules.html_datamodule.HtmlDataModule
+modality: html
+protocol: random
+use_build_splits: false
+metrics:
+  average: macro
+  dist:
+    sync_metrics: false
+paths:
+  data_root: ${oc.env:DATA_ROOT,data/processed}
+  train_index: ${paths.data_root}/train_v2.csv
+  val_index: ${paths.data_root}/val_v2.csv
+  test_index: ${paths.data_root}/test_v2.csv

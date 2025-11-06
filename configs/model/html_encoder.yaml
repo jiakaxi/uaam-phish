@@ -1,0 +1,10 @@
+# @package _global_
+# HTML 编码器模型配置
+
+model:
+  _target_: src.models.html_encoder.HTMLEncoder
+  bert_model: bert-base-uncased
+  hidden_dim: 768
+  output_dim: 256  # 必须与 URL 编码器一致（未来融合需要）
+  dropout: 0.1
+  freeze_bert: false

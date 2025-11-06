@@ -143,8 +143,9 @@ class TestPredictionCollector(Callback):
         """收集每个批次的预测"""
         # 需要在 LightningModule 的 test_step 中返回 predictions
         if outputs is not None and "y_true" in outputs and "y_prob" in outputs:
-            self.y_true.append(outputs["y_true"].cpu().numpy())
-            self.y_prob.append(outputs["y_prob"].cpu().numpy())
+            # Convert to float32 first to handle BFloat16 on CPU
+            self.y_true.append(outputs["y_true"].cpu().float().numpy())
+            self.y_prob.append(outputs["y_prob"].cpu().float().numpy())
 
     def on_test_end(self, trainer, pl_module):
         """测试结束后合并所有预测"""

@@ -44,7 +44,7 @@ def main():
     print("=" * 70)
 
     data_dir = Path("data/processed")
-    csv_files = ["train.csv", "val.csv", "test.csv"]
+    csv_files = ["url_train_v2.csv", "url_val_v2.csv", "url_test_v2.csv"]
 
     total_removed = 0
 

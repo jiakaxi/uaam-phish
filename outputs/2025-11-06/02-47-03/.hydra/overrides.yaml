@@ -1,0 +1,8 @@
+- experiment=html_baseline
+- trainer=local
+- train.epochs=10
+- model.freeze_bert=false
+- use_build_splits=true
+- protocol=random
+- logger=wandb
+- run.name=html_full_baseline

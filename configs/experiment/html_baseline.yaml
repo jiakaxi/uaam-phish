@@ -1,0 +1,62 @@
+# @package _global_
+# HTML-only 基线实验配置
+
+defaults:
+  - override /model: html_encoder
+  - override /data: html_only
+  - override /trainer: default
+
+# 实验标识
+run:
+  name: html_baseline
+  seed: 42
+  tags: [html-only, baseline, bert]
+
+# 显式指定 system 和 datamodule（Hydra 实例化）
+# 注意: _recursive_=false 防止Hydra递归实例化cfg中的嵌套_target_
+system:
+  _target_: src.systems.html_only_module.HtmlOnlyModule
+  _recursive_: false
+
+datamodule:
+  _target_: src.datamodules.html_datamodule.HtmlDataModule
+  _recursive_: false
+
+# 模态标识（用于日志/追踪）
+modality: html
+
+# 模型超参数（覆盖 model/html_encoder.yaml）
+model:
+  bert_model: bert-base-uncased  # 可改为 distilbert-base-uncased 节省显存
+  dropout: 0.1
+  freeze_bert: false
+
+# 训练超参数
+train:
+  epochs: 50
+  lr: 2.0e-5        # BERT 常用学习率
+  bs: 32            # 降低 batch_size 适应 BERT 显存需求
+  weight_decay: 0.01
+  log_every: 50
+
+# 评估监控
+eval:
+  monitor: val/auroc  # 统一命名：val/auroc
+  patience: 5
+  mode: max
+
+# 硬件配置
+hardware:
+  accelerator: auto
+  devices: 1
+  precision: 16-mixed  # 混合精度节省显存
+
+# 协议配置
+protocol: random
+use_build_splits: true
+
+# Metrics 配置（与 URL-only 对齐）
+metrics:
+  average: macro
+  dist:
+    sync_metrics: false

@@ -1,0 +1,7 @@
+- experiment=html_baseline
+- train.epochs=10
+- model.freeze_bert=false
+- protocol=random
+- train.bs=32
+- hardware.precision=16-mixed
+- run.name=html_baseline_10ep

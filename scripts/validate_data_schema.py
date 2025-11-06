@@ -109,9 +109,9 @@ def main():
     print(f"   标签值: {VALID_LABELS}")
     print("   样本数: > 0")
 
-    # 待检查的文件
+    # 待检查的文件 (V2版本)
     data_dir = Path("data/processed")
-    csv_files = ["train.csv", "val.csv", "test.csv"]
+    csv_files = ["url_train_v2.csv", "url_val_v2.csv", "url_test_v2.csv"]
 
     all_valid = True
     all_errors = []

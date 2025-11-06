@@ -136,9 +136,8 @@ def build_splits(
             if "brand" in test_df.columns
             else set()
         )
-        metadata["split_stats"]["brand_intersection_ok"] = (
-            len(train_brands & test_brands) == 0
-        )
+        # Store as bool in metadata (not in split_stats)
+        metadata["brand_intersection_ok"] = len(train_brands & test_brands) == 0
 
     return train_df, val_df, test_df, metadata
 

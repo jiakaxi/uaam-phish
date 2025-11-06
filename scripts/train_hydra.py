@@ -70,9 +70,25 @@ def train(cfg: DictConfig) -> float:
         exp_tracker = ExperimentTracker(cfg, exp_name=cfg.run.name)
         log.info(f"\n>> 实验目录: {exp_tracker.exp_dir}\n")
 
-    # 初始化数据和模型
-    dm = UrlDataModule(cfg)
-    model = UrlOnlySystem(cfg)
+    # 初始化数据和模型（通用 Hydra 实例化）
+    # 优先使用配置中的 _target_，否则回退到默认模块
+    if "datamodule" in cfg and "_target_" in cfg.datamodule:
+        dm = hydra.utils.instantiate(cfg.datamodule, cfg=cfg)
+        log.info(f">> DataModule: {cfg.datamodule._target_}")
+    else:
+        # 向后兼容：默认使用 UrlDataModule
+        dm = UrlDataModule(cfg)
+        log.info(
+            ">> DataModule: src.datamodules.url_datamodule.UrlDataModule (default)"
+        )
+
+    if "system" in cfg and "_target_" in cfg.system:
+        model = hydra.utils.instantiate(cfg.system, cfg=cfg)
+        log.info(f">> System: {cfg.system._target_}")
+    else:
+        # 向后兼容：默认使用 UrlOnlySystem
+        model = UrlOnlySystem(cfg)
+        log.info(">> System: src.systems.url_only_module.UrlOnlySystem (default)")
 
     # 配置回调
     monitor = cfg.eval.get("monitor", "val_loss")

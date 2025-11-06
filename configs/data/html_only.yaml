@@ -1,0 +1,20 @@
+# @package _global_
+# HTML 数据配置
+
+data:
+  csv_path: ${oc.env:DATA_ROOT,data/processed}/master_v2.csv
+  train_csv: ${oc.env:DATA_ROOT,data/processed}/html_train_v2.csv
+  val_csv: ${oc.env:DATA_ROOT,data/processed}/html_val_v2.csv
+  test_csv: ${oc.env:DATA_ROOT,data/processed}/html_test_v2.csv
+  num_workers: 4
+  html_col: html_path
+  label_col: label
+  timestamp_col: timestamp
+  brand_col: brand
+  source_col: source
+  html_max_len: 512  # BERT tokenization max length
+  batch_format: tuple
+  split_ratios:
+    train: 0.7
+    val: 0.15
+    test: 0.15

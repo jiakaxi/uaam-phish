@@ -110,7 +110,7 @@ class TestDataSplits:
 
         assert len(train_brands & test_brands) == 0
         assert metadata["brand_normalization"] == "strip+lower"
-        assert metadata["split_stats"]["brand_intersection_ok"]
+        assert metadata["brand_intersection_ok"] is True
 
 
 class TestMetrics:

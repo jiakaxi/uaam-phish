@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+import pandas as pd
 import pytorch_lightning as pl
 import torch
 import torch.nn as nn
@@ -9,10 +11,16 @@ from omegaconf import OmegaConf
 
 from src.models.url_encoder import URLEncoder
 from src.utils.metrics import get_step_metrics, compute_ece, compute_nll
+from src.utils.logging import get_logger
+
+log = get_logger(__name__)
 
 
 class UrlOnlyModule(pl.LightningModule):
-    """LightningModule wrapping a URLEncoder and a linear classifier."""
+    """
+    LightningModule wrapping a URLEncoder and a linear classifier.
+    Exports embeddings_test.csv in on_test_epoch_end.
+    """
 
     def __init__(self, cfg: Any) -> None:
         super().__init__()
@@ -134,6 +142,10 @@ class UrlOnlyModule(pl.LightningModule):
         result = self._shared_step(batch, "test")
         input_ids, labels = batch
 
+        # Get embeddings for export
+        with torch.no_grad():
+            embeddings = self.forward(input_ids)  # (batch, 256)
+
         # 计算预测概率用于可视化
         logits = result["logits"]
         probs = torch.softmax(logits, dim=1)
@@ -155,12 +167,13 @@ class UrlOnlyModule(pl.LightningModule):
                 sync_dist=sync_dist,
             )
 
-        # Store for epoch-level metrics
+        # Store for epoch-level metrics and embeddings export
         self.test_step_outputs.append(
             {
                 "logits": logits.detach(),
                 "labels": labels.detach(),
                 "probs": probs.detach(),
+                "embeddings": embeddings.detach(),
             }
         )
 
@@ -202,7 +215,7 @@ class UrlOnlyModule(pl.LightningModule):
         self.validation_step_outputs.clear()
 
     def on_test_epoch_end(self):
-        """Compute epoch-level metrics: NLL, ECE"""
+        """Compute epoch-level metrics: NLL, ECE, and export embeddings"""
         if len(self.test_step_outputs) == 0:
             return
 
@@ -210,6 +223,7 @@ class UrlOnlyModule(pl.LightningModule):
         all_logits = torch.cat([x["logits"] for x in self.test_step_outputs])
         all_labels = torch.cat([x["labels"] for x in self.test_step_outputs])
         all_probs = torch.cat([x["probs"] for x in self.test_step_outputs])
+        all_embeddings = torch.cat([x["embeddings"] for x in self.test_step_outputs])
 
         # NLL
         nll = compute_nll(all_logits, all_labels)
@@ -228,6 +242,63 @@ class UrlOnlyModule(pl.LightningModule):
         self.log("test_nll", nll, prog_bar=False, sync_dist=sync_dist)
         self.log("test_ece", ece_value, prog_bar=False, sync_dist=sync_dist)
         self.log("test_ece_bins", float(bins_used), prog_bar=False, sync_dist=sync_dist)
+
+        # Log metrics summary
+        log.info("=" * 70)
+        log.info("[URL-only] Test Epoch Metrics Summary:")
+        log.info(f"  NLL:      {nll:.4f}")
+        log.info(f"  ECE:      {ece_value:.4f} (bins={bins_used})")
+
+        # Get step metrics from test_metrics
+        for name, metric in self.test_metrics.items():
+            value = metric.compute()
+            log.info(f"  {name.upper()}: {value:.4f}")
+
+        log.info("=" * 70)
+
+        # Export embeddings_test.csv
+        try:
+            # Find results directory from experiment tracker
+            # Try multiple possible locations
+            if hasattr(self.trainer, "logger") and hasattr(
+                self.trainer.logger, "log_dir"
+            ):
+                results_dir = (
+                    Path(self.trainer.logger.log_dir).parent.parent / "results"
+                )
+            elif hasattr(self.trainer, "default_root_dir"):
+                results_dir = Path(self.trainer.default_root_dir) / "results"
+            else:
+                # Fallback: create in current directory
+                results_dir = Path("experiments") / "results"
+
+            results_dir.mkdir(parents=True, exist_ok=True)
+
+            embeddings_np = all_embeddings.cpu().numpy()
+            embeddings_df = pd.DataFrame(
+                embeddings_np,
+                columns=[f"emb_{i}" for i in range(embeddings_np.shape[1])],
+            )
+
+            # Add sample IDs (use indices if dataset doesn't provide IDs)
+            # Try to get IDs from test dataset
+            test_dataset = self.trainer.datamodule.test_dataset
+            if hasattr(test_dataset, "_ids"):
+                embeddings_df.insert(0, "id", test_dataset._ids[: len(embeddings_df)])
+            else:
+                embeddings_df.insert(
+                    0, "id", [str(i) for i in range(len(embeddings_df))]
+                )
+
+            embeddings_path = results_dir / "embeddings_test.csv"
+            embeddings_df.to_csv(embeddings_path, index=False)
+            log.info(f"[SUCCESS] Exported URL embeddings to: {embeddings_path}")
+            log.info(f"   Shape: {embeddings_df.shape} (samples x features)")
+        except Exception as e:
+            log.error(f"[ERROR] Failed to export URL embeddings: {e}")
+            import traceback
+
+            log.error(traceback.format_exc())
 
         # Clear outputs
         self.test_step_outputs.clear()

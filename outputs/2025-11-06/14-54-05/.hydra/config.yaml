@@ -1,0 +1,81 @@
+model:
+  _target_: src.models.visual_encoder.VisualEncoder
+  vocab_size: 128
+  embedding_dim: 256
+  hidden_dim: 128
+  num_layers: 2
+  bidirectional: true
+  dropout: 0.1
+  pad_id: 0
+  proj_dim: 256
+  max_len: 256
+  num_classes: 2
+  pretrained: true
+  freeze_backbone: false
+  pos_weight: null
+data:
+  csv_path: ${oc.env:DATA_ROOT,data/processed}/master_v2.csv
+  train_csv: ${oc.env:DATA_ROOT,data/processed}/url_train_v2.csv
+  val_csv: ${oc.env:DATA_ROOT,data/processed}/url_val_v2.csv
+  test_csv: ${oc.env:DATA_ROOT,data/processed}/url_test_v2.csv
+  num_workers: 4
+  text_col: url_text
+  label_col: label
+  timestamp_col: timestamp
+  brand_col: brand
+  source_col: source
+  min_len: 1
+  batch_format: tuple
+  split_ratios:
+    train: 0.7
+    val: 0.15
+    test: 0.15
+  image_col: img_path
+  id_col: id
+  split_col: split
+hardware:
+  accelerator: auto
+  devices: 1
+  precision: 32
+  num_workers: 4
+train:
+  epochs: 2
+  lr: 0.0001
+  bs: 4
+  log_every: 10
+  weight_decay: 0.0001
+eval:
+  bs: 64
+  monitor: val/auroc
+  patience: 5
+  mode: max
+logger:
+  _target_: pytorch_lightning.loggers.CSVLogger
+  save_dir: ${hydra:runtime.output_dir}
+  name: ${run.name}
+  version: null
+run:
+  name: url_mvp
+  seed: 42
+  tags:
+  - visual-only
+  - baseline
+  - resnet50
+system:
+  _target_: src.systems.visual_only_module.VisualOnlyModule
+  _recursive_: false
+datamodule:
+  _target_: src.datamodules.visual_datamodule.VisualDataModule
+  _recursive_: false
+modality: visual
+protocol: random
+use_build_splits: false
+metrics:
+  average: macro
+  dist:
+    sync_metrics: false
+paths:
+  data_root: ${oc.env:DATA_ROOT,data/processed}
+  train_index: ${paths.data_root}/train_v2.csv
+  val_index: ${paths.data_root}/val_v2.csv
+  test_index: ${paths.data_root}/test_v2.csv
