@@ -1,0 +1,5 @@
+- experiment=multimodal_baseline
+- datamodule.split_protocol=temporal
+- trainer.fast_dev_run=true
+- hardware.accelerator=gpu
+- hardware.devices=1

@@ -1,0 +1,145 @@
+model:
+  _target_: src.systems.multimodal_baseline.MultimodalBaselineSystem
+  url_vocab_size: 128
+  url_embed_dim: 64
+  url_hidden_dim: 128
+  url_num_layers: 2
+  url_max_len: 200
+  html_model_name: bert-base-uncased
+  html_hidden_dim: 768
+  html_projection_dim: 256
+  html_freeze_bert: false
+  visual_model_name: resnet50
+  visual_pretrained: true
+  visual_projection_dim: 256
+  visual_freeze_backbone: false
+  learning_rate: 0.001
+  weight_decay: 1.0e-05
+  dropout: 0.1
+  pos_weight: null
+data:
+  csv_path: ${oc.env:DATA_ROOT,data/processed}/master_v2.csv
+  train_csv: ${oc.env:DATA_ROOT,data/processed}/url_train_v2.csv
+  val_csv: ${oc.env:DATA_ROOT,data/processed}/url_val_v2.csv
+  test_csv: ${oc.env:DATA_ROOT,data/processed}/url_test_v2.csv
+  num_workers: 4
+  text_col: url_text
+  label_col: label
+  timestamp_col: timestamp
+  brand_col: brand
+  source_col: source
+  min_len: 1
+  batch_format: tuple
+  split_ratios:
+    train: 0.7
+    val: 0.15
+    test: 0.15
+hardware:
+  accelerator: auto
+  devices: auto
+  precision: 16
+  num_workers: 4
+train:
+  epochs: 25
+  lr: 0.001
+  bs: 128
+  log_every: 50
+  weight_decay: 1.0e-05
+  grad_accumulation: 1
+eval:
+  bs: 128
+  monitor: val/auroc
+  patience: 10
+trainer:
+  fast_dev_run: true
+  limit_train_batches: null
+  limit_val_batches: null
+  limit_test_batches: null
+  overfit_batches: 0
+  max_epochs: 25
+  check_val_every_n_epoch: 1
+  log_every_n_steps: 50
+  precision: 16
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 1
+  callbacks:
+  - _target_: pytorch_lightning.callbacks.ModelCheckpoint
+    dirpath: ${paths.output_dir}/checkpoints
+    filename: epoch={epoch:02d}-val_auroc={val/auroc:.3f}
+    monitor: val/auroc
+    mode: max
+    save_top_k: 3
+    save_last: true
+    auto_insert_metric_name: false
+  - _target_: pytorch_lightning.callbacks.EarlyStopping
+    monitor: val/auroc
+    patience: 10
+    mode: max
+    min_delta: 0.0
+  - _target_: pytorch_lightning.callbacks.LearningRateMonitor
+    logging_interval: epoch
+logger:
+  _target_: pytorch_lightning.loggers.CSVLogger
+  save_dir: ${hydra:runtime.output_dir}
+  name: ${run.name}
+  version: null
+  wandb:
+    project: uaam-phish
+    name: ${run.name}
+    tags: ${run.tags}
+    notes: ${run.notes}
+    save_dir: ${paths.output_dir}
+system:
+  _target_: src.systems.multimodal_baseline.MultimodalBaselineSystem
+  _recursive_: false
+  url_vocab_size: ${model.url_vocab_size}
+  url_embed_dim: ${model.url_embed_dim}
+  url_hidden_dim: ${model.url_hidden_dim}
+  url_num_layers: ${model.url_num_layers}
+  url_max_len: ${model.url_max_len}
+  html_model_name: ${model.html_model_name}
+  html_hidden_dim: ${model.html_hidden_dim}
+  html_projection_dim: ${model.html_projection_dim}
+  html_freeze_bert: ${model.html_freeze_bert}
+  visual_model_name: ${model.visual_model_name}
+  visual_pretrained: ${model.visual_pretrained}
+  visual_projection_dim: ${model.visual_projection_dim}
+  visual_freeze_backbone: ${model.visual_freeze_backbone}
+  learning_rate: ${model.learning_rate}
+  weight_decay: ${model.weight_decay}
+  dropout: ${model.dropout}
+  pos_weight: ${model.pos_weight}
+datamodule:
+  _target_: src.data.multimodal_datamodule.MultimodalDataModule
+  _recursive_: false
+  master_csv: data/processed/master_v2.csv
+  split_protocol: random
+  use_presplit: true
+  batch_size: 128
+  num_workers: 4
+  pin_memory: true
+  use_augmentation: false
+  url_max_len: 200
+  url_vocab_size: 128
+  html_max_len: 256
+  image_dir: data/processed/screenshots
+paths:
+  data_dir: data
+  output_dir: ${hydra:runtime.output_dir}
+  data_root: ${oc.env:DATA_ROOT,data/processed}
+  train_index: ${paths.data_root}/train_v2.csv
+  val_index: ${paths.data_root}/val_v2.csv
+  test_index: ${paths.data_root}/test_v2.csv
+run:
+  name: url_mvp
+  tags:
+  - multimodal
+  - baseline
+  - concat
+  - early_fusion
+  - ${datamodule.split_protocol}
+  notes: 'S0: Multimodal concatenation baseline (Early Fusion, logits-only head)'
+  seed: 42
+seed: 42
+protocol: random
+use_build_splits: false

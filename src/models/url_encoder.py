@@ -15,7 +15,7 @@ class URLEncoder(nn.Module):
     def __init__(
         self,
         vocab_size: int = 128,
-        embedding_dim: int = 128,
+        embedding_dim: int = 64,
         hidden_dim: int = 128,
         num_layers: int = 2,
         bidirectional: bool = True,

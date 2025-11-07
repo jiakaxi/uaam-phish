@@ -1,6 +1,7 @@
 """
-Legacy URL 编码器 - 基于 HuggingFace Transformers
-保留用于向后兼容多模态实验
+Archived legacy URL encoder (BERT-based).
+
+Retained for reference; not used in S0 baseline.
 """
 
 from __future__ import annotations
@@ -13,16 +14,9 @@ from transformers import AutoConfig, AutoModel
 
 
 class UrlBertEncoder(nn.Module):
-    """
-    Legacy HuggingFace-based encoder kept for backward compatibility with
-    multimodal experiments.
-
-    [WARNING] 不建议用于新实验，请使用 URLEncoder（字符级）
-    """
-
     def __init__(
         self, pretrained_name: str = "bert-base-uncased", dropout: float = 0.1
-    ):
+    ) -> None:
         super().__init__()
         self.config = AutoConfig.from_pretrained(
             pretrained_name, output_hidden_states=False
@@ -32,12 +26,12 @@ class UrlBertEncoder(nn.Module):
         self.proj = nn.Identity()
 
     def forward(self, batch: Dict[str, torch.Tensor]) -> torch.Tensor:
-        out = self.backbone(
+        outputs = self.backbone(
             input_ids=batch["input_ids"],
             attention_mask=batch["attention_mask"],
             token_type_ids=batch.get("token_type_ids"),
             return_dict=True,
         )
-        x = out.last_hidden_state[:, 0, :]
-        x = self.dropout(x)
-        return self.proj(x)
+        cls_token = outputs.last_hidden_state[:, 0, :]
+        cls_token = self.dropout(cls_token)
+        return self.proj(cls_token)

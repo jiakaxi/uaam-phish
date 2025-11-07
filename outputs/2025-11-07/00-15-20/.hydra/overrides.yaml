@@ -1,0 +1,3 @@
+- experiment=multimodal_baseline
+- datamodule.split_protocol=random
+- trainer.fast_dev_run=true

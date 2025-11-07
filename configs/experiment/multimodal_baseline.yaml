@@ -1,22 +1,21 @@
 # @package _global_
 #
-# 多模态拼接基线实验配置 (S0: Early Fusion Baseline)
+# 多模态拼接基线实验配置（S0，参见论文 Sec. 4.6）
 #
-# 运行命令：
+# 运行示例：
 #   python scripts/train_hydra.py experiment=multimodal_baseline
-#   python scripts/train_hydra.py experiment=multimodal_baseline datamodule.split_protocol=brand_ood
+#   python scripts/train_hydra.py experiment=multimodal_baseline datamodule.split_protocol=random
 #   python scripts/train_hydra.py experiment=multimodal_baseline datamodule.split_protocol=temporal
 
 defaults:
   - override /model: multimodal_baseline
   - override /trainer: default
 
-# 显式指定 system 和 datamodule（Hydra 实例化）
-# 注意: _recursive_=false 防止Hydra递归实例化cfg中的嵌套_target_
+# 明确指定 system 与 datamodule（_recursive_=false 以避免重复实例化）
 system:
   _target_: src.systems.multimodal_baseline.MultimodalBaselineSystem
   _recursive_: false
-  # 从 model config 继承参数
+  # 继承模型配置参数
   url_vocab_size: ${model.url_vocab_size}
   url_embed_dim: ${model.url_embed_dim}
   url_hidden_dim: ${model.url_hidden_dim}
@@ -39,37 +38,37 @@ datamodule:
   _target_: src.data.multimodal_datamodule.MultimodalDataModule
   _recursive_: false
   master_csv: "data/processed/master_v2.csv"
-  split_protocol: "random"
-  use_presplit: true  # 使用 CSV 中的 'split' 列
-  batch_size: 32  # 降低 batch size 避免内存问题
-  num_workers: 2  # 降低 num_workers
+  split_protocol: "presplit"  # Sec. 4.3.4 默认遵循提供的 split 列
+  use_presplit: true
+  batch_size: 128  # Sec. 4.6.3 目标 batch size（如显存不足可调 accumulate_grad_batches）
+  num_workers: 4
   pin_memory: true
   use_augmentation: false
   url_max_len: 200
   url_vocab_size: 128
-  html_max_len: 256  # 降低 HTML 长度避免内存问题
+  html_max_len: 256  # Sec. 4.6.1 默认截断；可通过覆盖提升至 512
   image_dir: "data/processed/screenshots"
 
-# Paths configuration
+# 路径配置
 paths:
   data_dir: "data"
   output_dir: "${hydra:runtime.output_dir}"
 
-# Run metadata
+# 运行元数据
 run:
   name: "mm_baseline_${datamodule.split_protocol}_${now:%Y%m%d_%H%M%S}"
   tags: ["multimodal", "baseline", "concat", "early_fusion", "${datamodule.split_protocol}"]
   notes: "S0: Multimodal concatenation baseline (Early Fusion, logits-only head)"
 
-# Trainer configuration
+# Trainer 配置（其余默认由 configs/trainer/default.yaml 提供）
 trainer:
-  max_epochs: 30
+  max_epochs: 25
   check_val_every_n_epoch: 1
   log_every_n_steps: 50
-  precision: 16  # Mixed precision training (faster, lower memory)
-  gradient_clip_val: 1.0  # Gradient clipping for stability
+  precision: 16
+  gradient_clip_val: 1.0
+  accumulate_grad_batches: 1  # 若需降 batch size，请相应调大该值
 
-  # Callbacks
   callbacks:
     - _target_: pytorch_lightning.callbacks.ModelCheckpoint
       dirpath: "${paths.output_dir}/checkpoints"
@@ -84,12 +83,12 @@ trainer:
       monitor: "val/auroc"
       patience: 10
       mode: "max"
-      min_delta: 0.001
+      min_delta: 0.0
 
     - _target_: pytorch_lightning.callbacks.LearningRateMonitor
       logging_interval: "epoch"
 
-# Logging configuration
+# Logger 设置
 logger:
   wandb:
     project: "uaam-phish"
@@ -97,11 +96,6 @@ logger:
     tags: ${run.tags}
     notes: ${run.notes}
     save_dir: "${paths.output_dir}"
-
-# Paths (using default from paths/default.yaml)
-# paths:
-#   data_dir: "data"
-#   output_dir: "experiments/${run.name}"
 
 # Seed for reproducibility
 seed: 42

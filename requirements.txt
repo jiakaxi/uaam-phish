@@ -5,14 +5,18 @@ pytorch-lightning>=2.3
 # 预训练模型和评估
 transformers>=4.41
 torchmetrics>=1.0
+torchvision>=0.17  # 视觉模型（ResNet等）
 
 # 数据处理
 pandas>=2.1
 numpy>=1.26
 scikit-learn>=1.4
+Pillow>=10.0  # 图像处理
 
-# URL 解析
+# URL/HTML 解析
 tldextract>=3.4
+beautifulsoup4>=4.12  # HTML 解析
+lxml>=4.9  # bs4 的解析器后端
 
 # 配置管理
 omegaconf>=2.3

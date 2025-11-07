@@ -61,6 +61,7 @@ class ExperimentTracker:
         # 创建实验目录
         self.exp_dir = self.base_dir / self.exp_name
         self.results_dir = self.exp_dir / "results"
+        self.artifacts_dir = self.exp_dir / "artifacts"
         self.logs_dir = self.exp_dir / "logs"
         self.checkpoints_dir = self.exp_dir / "checkpoints"
 
@@ -71,6 +72,7 @@ class ExperimentTracker:
         """创建实验目录结构"""
         self.exp_dir.mkdir(exist_ok=True)
         self.results_dir.mkdir(exist_ok=True)
+        self.artifacts_dir.mkdir(exist_ok=True)
         self.logs_dir.mkdir(exist_ok=True)
         self.checkpoints_dir.mkdir(exist_ok=True)
 

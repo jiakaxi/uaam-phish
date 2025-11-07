@@ -1,0 +1,91 @@
+# 品牌别名映射
+# 用于规范化不同拼写、格式的品牌名称
+
+# PayPal 相关
+"pay-pal": "paypal"
+"pay pal": "paypal"
+"pay_pal": "paypal"
+"paypal inc": "paypal"
+
+# Facebook 相关
+"face book": "facebook"
+"face-book": "facebook"
+"facebook inc": "facebook"
+"fb": "facebook"
+
+# Microsoft 相关
+"micro soft": "microsoft"
+"micro-soft": "microsoft"
+"microsoft corporation": "microsoft"
+"msft": "microsoft"
+
+# Google 相关
+"google inc": "google"
+"google llc": "google"
+
+# Apple 相关
+"apple inc": "apple"
+"apple computer": "apple"
+
+# Amazon 相关
+"amazon com": "amazon"
+"amazon.com": "amazon"
+"amazon inc": "amazon"
+
+# 1&1 / Ionos
+"1&1 ionos": "ionos"
+"1and1": "ionos"
+"1&1": "ionos"
+
+# Adobe 相关
+"adobe inc": "adobe"
+"adobe systems": "adobe"
+
+# Netflix 相关
+"netflix inc": "netflix"
+
+# LinkedIn 相关
+"linked in": "linkedin"
+"linked-in": "linkedin"
+
+# Instagram 相关
+"insta gram": "instagram"
+
+# Twitter 相关
+"twitter inc": "twitter"
+
+# WhatsApp 相关
+"whats app": "whatsapp"
+"whats-app": "whatsapp"
+
+# Dropbox 相关
+"drop box": "dropbox"
+"drop-box": "dropbox"
+
+# Chase 相关
+"jp morgan chase": "chase"
+"jpmorgan": "chase"
+
+# Bank of America
+"bankofamerica": "bankofamerica"
+"bofa": "bankofamerica"
+
+# Wells Fargo
+"wellsfargo": "wellsfargo"
+"wells fargo bank": "wellsfargo"
+
+# DHL 相关
+"dhl express": "dhl"
+"dhl logistics": "dhl"
+
+# FedEx 相关
+"fed ex": "fedex"
+"federal express": "fedex"
+
+# UPS 相关
+"united parcel service": "ups"
+
+# 常见拼写错误
+"gogle": "google"
+"facbook": "facebook"
+"amzon": "amazon"

@@ -1,0 +1,6 @@
+- data.csv_path=data/processed/master_test_200.csv
+- protocol=random
+- train.epochs=1
+- hardware.accelerator=gpu
+- hardware.devices=1
+- run.name=test_200_gpu

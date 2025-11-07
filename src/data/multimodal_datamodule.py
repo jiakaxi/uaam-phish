@@ -1,15 +1,15 @@
 """
-多模态数据模块 - 整合 URL、HTML、Visual 三模态数据
+Multimodal DataModule (S0 baseline, Sec. 4.3.4 & 4.6.1).
 """
 
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional, Tuple
 
 import pandas as pd
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, Dataset
 import pytorch_lightning as pl
 from PIL import Image
 from transformers import BertTokenizer
@@ -18,89 +18,41 @@ from torchvision import transforms
 from src.utils.logging import get_logger
 from src.utils.splits import build_splits
 
+
 log = get_logger(__name__)
 
 
 class MultimodalDataset(Dataset):
-    """
-    多模态数据集：同时加载 URL、HTML、Visual 三模态数据。
-
-    返回格式：
-    {
-        "id": sample_id,
-        "url": torch.LongTensor [seq_len],
-        "html": {"input_ids": ..., "attention_mask": ...},
-        "visual": torch.FloatTensor [3, 224, 224],
-        "label": torch.LongTensor (scalar)
-    }
-    """
-
     def __init__(
         self,
         df: pd.DataFrame,
-        url_max_len: int = 200,
-        url_vocab_size: int = 128,
-        html_tokenizer: BertTokenizer = None,
-        html_max_len: int = 512,
-        visual_transform: transforms.Compose = None,
-        image_dir: Path = None,
-    ):
-        """
-        Args:
-            df: DataFrame with columns [sample_id, url_text, html_text, image_path, label]
-            url_max_len: Max URL character sequence length
-            url_vocab_size: URL character vocabulary size (ASCII)
-            html_tokenizer: BERT tokenizer
-            html_max_len: Max HTML token sequence length
-            visual_transform: Image transforms (ResNet-50 standard)
-            image_dir: Base directory for image paths (if relative)
-        """
+        url_max_len: int,
+        url_vocab_size: int,
+        html_tokenizer: BertTokenizer,
+        html_max_len: int,
+        visual_transform: transforms.Compose,
+        image_dir: Path,
+    ) -> None:
         self.df = df.reset_index(drop=True)
         self.url_max_len = url_max_len
         self.url_vocab_size = url_vocab_size
         self.html_tokenizer = html_tokenizer
         self.html_max_len = html_max_len
         self.visual_transform = visual_transform
-        self.image_dir = Path(image_dir) if image_dir else Path(".")
+        self.image_dir = image_dir
 
-        # Validate required columns
-        required_cols = {"sample_id", "url_text", "html_text", "image_path", "label"}
-        missing = required_cols - set(df.columns)
-        if missing:
-            log.warning(f"Missing columns: {missing}, will use placeholders")
-
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.df)
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         row = self.df.iloc[idx]
-
-        sample_id = row.get("id", row.get("sample_id", idx))
-        url_text = row.get("url_text", "")
-        # 处理 NaN 情况
-        if pd.isna(url_text) or not isinstance(url_text, str):
-            url_text = ""
-
-        # HTML 可能在 html_text 列，或者在 html_path 指向的文件中
-        html_text = row.get("html_text", "")
-        if not html_text and "html_path" in row and pd.notna(row["html_path"]):
-            try:
-                html_path = Path(str(row["html_path"]))
-                if html_path.exists():
-                    with open(html_path, "r", encoding="utf-8", errors="ignore") as f:
-                        html_text = f.read()
-            except Exception as e:
-                log.warning(f"Failed to read HTML from {row.get('html_path')}: {e}")
-                html_text = ""
-
-        # 图像路径可能在 image_path 或 img_path 列
-        image_path = row.get("img_path", row.get("image_path", ""))
+        sample_id = row.get("sample_id", row.get("id", idx))
+        url_text = self._safe_string(row.get("url_text", row.get("url", "")))
+        html_text = self._load_html(row)
+        image_tensor = self._load_image(row.get("img_path", row.get("image_path", "")))
         label = int(row.get("label", 0))
 
-        # 1. URL: Character-level tokenization
         url_ids = self._tokenize_url(url_text)
-
-        # 2. HTML: BERT tokenization
         html_encoded = self.html_tokenizer(
             html_text,
             max_length=self.html_max_len,
@@ -108,94 +60,90 @@ class MultimodalDataset(Dataset):
             truncation=True,
             return_tensors="pt",
         )
-        html_input_ids = html_encoded["input_ids"].squeeze(0)  # [seq_len]
-        html_attention_mask = html_encoded["attention_mask"].squeeze(0)  # [seq_len]
-
-        # 3. Visual: Load image and apply transforms
-        visual_tensor = self._load_image(image_path)
 
         return {
             "id": sample_id,
             "url": url_ids,
             "html": {
-                "input_ids": html_input_ids,
-                "attention_mask": html_attention_mask,
+                "input_ids": html_encoded["input_ids"].squeeze(0),
+                "attention_mask": html_encoded["attention_mask"].squeeze(0),
             },
-            "visual": visual_tensor,
+            "visual": image_tensor,
             "label": torch.tensor(label, dtype=torch.long),
         }
 
+    @staticmethod
+    def _safe_string(value: Any) -> str:
+        if isinstance(value, str):
+            return value
+        return "" if pd.isna(value) else str(value)
+
     def _tokenize_url(self, url_text: str) -> torch.LongTensor:
-        """Character-level URL tokenization (ASCII-based)."""
-        # Convert to ASCII codes, clamp to vocab_size
-        ids = [min(ord(c), self.url_vocab_size - 1) for c in url_text]
-
-        # Truncate or pad to max_len
-        if len(ids) > self.url_max_len:
-            ids = ids[: self.url_max_len]
+        char_ids = [min(ord(c), self.url_vocab_size - 1) for c in url_text]
+        if len(char_ids) > self.url_max_len:
+            char_ids = char_ids[: self.url_max_len]
         else:
-            ids = ids + [0] * (self.url_max_len - len(ids))  # pad with 0
+            char_ids += [0] * (self.url_max_len - len(char_ids))
+        return torch.tensor(char_ids, dtype=torch.long)
 
-        return torch.tensor(ids, dtype=torch.long)
+    def _load_html(self, row: pd.Series) -> str:
+        html_text = self._safe_string(row.get("html_text", ""))
+        if html_text:
+            return html_text
+        html_path = row.get("html_path")
+        if pd.notna(html_path):
+            try:
+                return Path(html_path).read_text(encoding="utf-8", errors="ignore")
+            except Exception as exc:
+                log.warning("Failed to read HTML from %s: %s", html_path, exc)
+        return ""
 
-    def _load_image(self, image_path: str) -> torch.Tensor:
-        """Load image from path and apply transforms."""
+    def _load_image(self, image_path: Any) -> torch.Tensor:
+        # Handle NaN (float) or empty string
+        if pd.isna(image_path) or not image_path:
+            img = Image.new("RGB", (224, 224))
+            return self.visual_transform(img)
+
+        path = Path(self._safe_string(image_path))
+        if not path.is_absolute():
+            path = self.image_dir / path
+
         try:
-            # Try to load image
-            full_path = self.image_dir / image_path
-            if not full_path.exists():
-                # Try as absolute path
-                full_path = Path(image_path)
-
-            img = Image.open(full_path).convert("RGB")
-
-            if self.visual_transform:
-                img_tensor = self.visual_transform(img)
-            else:
-                # Fallback: resize to 224x224 and convert to tensor
-                img = img.resize((224, 224))
-                img_tensor = transforms.ToTensor()(img)
-
-            return img_tensor
-
-        except Exception as e:
-            log.warning(
-                f"Failed to load image {image_path}: {e}, using black placeholder"
+            img = (
+                Image.open(path).convert("RGB")
+                if path.exists()
+                else Image.new("RGB", (224, 224))
             )
-            # Return black placeholder image
-            return torch.zeros(3, 224, 224)
+        except Exception as exc:
+            log.warning(
+                "Failed to load image %s (%s); using blank placeholder.",
+                image_path,
+                exc,
+            )
+            img = Image.new("RGB", (224, 224))
+        return self.visual_transform(img)
 
 
 class MultimodalDataModule(pl.LightningDataModule):
-    """
-    多模态数据模块：整合 URL、HTML、Visual 三个数据源。
-
-    数据加载策略：
-    1. 加载三个 CSV 文件
-    2. 以 sample_id（或 url_text）为键内连接合并
-    3. 根据 split_protocol 分割数据（random / temporal / brand_ood）
-    4. 返回三个 DataLoader（train/val/test）
-    """
-
     def __init__(
         self,
-        url_data_path: str = None,
-        html_data_path: str = None,
-        visual_data_path: str = None,
-        master_csv: str = None,  # 新增：使用单个 master CSV
-        split_protocol: str = "random",
-        batch_size: int = 64,
+        url_data_path: Optional[str] = None,
+        html_data_path: Optional[str] = None,
+        visual_data_path: Optional[str] = None,
+        master_csv: Optional[str] = None,
+        split_protocol: str = "presplit",
+        batch_size: int = 128,
         num_workers: int = 4,
         pin_memory: bool = True,
         use_augmentation: bool = False,
         url_max_len: int = 200,
         url_vocab_size: int = 128,
-        html_max_len: int = 512,
+        html_max_len: int = 256,
         image_dir: Optional[str] = None,
-        use_presplit: bool = True,  # 新增：是否使用预分割数据
-        cfg=None,  # 兼容 Hydra 实例化时传入的 cfg 参数（忽略）
-        **kwargs,  # 捕获其他未知参数
-    ):
+        use_presplit: bool = True,
+        cfg: Any = None,
+        **kwargs: Any,
+    ) -> None:
         super().__init__()
         self.master_csv = Path(master_csv) if master_csv else None
         self.url_data_path = Path(url_data_path) if url_data_path else None
@@ -214,157 +162,25 @@ class MultimodalDataModule(pl.LightningDataModule):
             Path(image_dir) if image_dir else Path("data/processed/screenshots")
         )
 
-        # Datasets (initialized in setup)
-        self.train_dataset: Optional[MultimodalDataset] = None
-        self.val_dataset: Optional[MultimodalDataset] = None
-        self.test_dataset: Optional[MultimodalDataset] = None
+        self.train_dataset: Optional[Dataset] = None
+        self.val_dataset: Optional[Dataset] = None
+        self.test_dataset: Optional[Dataset] = None
+        self.split_metadata: Dict[str, Any] = {}
 
-        # Split metadata (for callbacks)
-        self.split_metadata: Dict = {}
+    # ------------------------------------------------------------------ #
+    def setup(self, stage: Optional[str] = None) -> None:
+        full_df = self._load_dataframe()
+        train_df, val_df, test_df = self._determine_splits(full_df)
 
-    def setup(self, stage: Optional[str] = None):
-        """Load and merge three CSVs, then split into train/val/test."""
+        tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
+        train_transform, eval_transform = self._build_transforms()
 
-        # 使用 master CSV（所有数据已在一个文件中）
-        if self.master_csv and self.master_csv.exists():
-            log.info(f">> Loading multimodal data from master CSV: {self.master_csv}")
-            df_merged = pd.read_csv(self.master_csv)
-            log.info(f"   Total samples: {len(df_merged)}")
-
-            # 使用预分割的数据（基于 'split' 列）
-            if self.use_presplit and "split" in df_merged.columns:
-                log.info(">> Using pre-split data from 'split' column")
-                train_df = df_merged[df_merged["split"] == "train"].copy()
-                val_df = df_merged[df_merged["split"] == "val"].copy()
-                test_df = df_merged[df_merged["split"] == "test"].copy()
-
-                self.split_metadata = {
-                    "protocol": "presplit",
-                    "split_stats": {
-                        "train": {"count": len(train_df)},
-                        "val": {"count": len(val_df)},
-                        "test": {"count": len(test_df)},
-                    },
-                }
-            else:
-                # 调用 build_splits 进行分割
-                log.info(f">> Building splits using protocol: {self.split_protocol}")
-
-                class SplitConfig:
-                    def __init__(self, protocol):
-                        self.protocol = protocol
-                        self.data = {
-                            "split_ratios": {"train": 0.7, "val": 0.15, "test": 0.15}
-                        }
-
-                    def get(self, key, default=None):
-                        return getattr(self, key, default)
-
-                cfg = SplitConfig(self.split_protocol)
-                train_df, val_df, test_df, metadata = build_splits(
-                    df_merged, cfg, protocol=self.split_protocol
-                )
-                self.split_metadata = metadata
-
-        else:
-            # 兼容旧方式：从三个独立 CSV 加载
-            log.info(">> Loading multimodal data...")
-            df_url = pd.read_csv(self.url_data_path)
-            df_html = pd.read_csv(self.html_data_path)
-            df_visual = pd.read_csv(self.visual_data_path)
-
-            log.info(f"   URL data: {len(df_url)} samples")
-            log.info(f"   HTML data: {len(df_html)} samples")
-            log.info(f"   Visual data: {len(df_visual)} samples")
-
-            # 2. Inner join on sample_id (or url as fallback)
-            merge_key = "sample_id" if "sample_id" in df_url.columns else "url"
-
-            df_merged = df_url.merge(
-                df_html, on=merge_key, how="inner", suffixes=("", "_html")
-            )
-            df_merged = df_merged.merge(
-                df_visual, on=merge_key, how="inner", suffixes=("", "_vis")
-            )
-
-            log.info(f">> After inner join: {len(df_merged)} samples")
-
-            # 使用 build_splits
-            log.info(f">> Building splits using protocol: {self.split_protocol}")
-
-            class SplitConfig:
-                def __init__(self, protocol):
-                    self.protocol = protocol
-                    self.data = {
-                        "split_ratios": {"train": 0.7, "val": 0.15, "test": 0.15}
-                    }
-
-                def get(self, key, default=None):
-                    return getattr(self, key, default)
-
-            cfg = SplitConfig(self.split_protocol)
-            train_df, val_df, test_df, metadata = build_splits(
-                df_merged, cfg, protocol=self.split_protocol
-            )
-            self.split_metadata = metadata
-
-        log.info(
-            f">> Splits: train={len(train_df)}, val={len(val_df)}, test={len(test_df)}"
-        )
-
-        if self.split_metadata.get("downgraded_to"):
-            log.warning(
-                f">> Protocol downgraded to '{self.split_metadata['downgraded_to']}': {self.split_metadata.get('downgrade_reason')}"
-            )
-
-        # 4. Initialize tokenizers and transforms
-        self.html_tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
-
-        # ResNet-50 standard transforms
-        if self.use_augmentation:
-            # Training augmentation
-            train_transform = transforms.Compose(
-                [
-                    transforms.Resize(256),
-                    transforms.RandomCrop(224),
-                    transforms.RandomHorizontalFlip(),
-                    transforms.ToTensor(),
-                    transforms.Normalize(
-                        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                    ),
-                ]
-            )
-        else:
-            train_transform = transforms.Compose(
-                [
-                    transforms.Resize(256),
-                    transforms.CenterCrop(224),
-                    transforms.ToTensor(),
-                    transforms.Normalize(
-                        mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                    ),
-                ]
-            )
-
-        # Val/test transform (no augmentation)
-        eval_transform = transforms.Compose(
-            [
-                transforms.Resize(256),
-                transforms.CenterCrop(224),
-                transforms.ToTensor(),
-                transforms.Normalize(
-                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-                ),
-            ]
-        )
-
-        # 5. Create datasets
         if stage in (None, "fit", "train"):
             self.train_dataset = MultimodalDataset(
                 train_df,
                 url_max_len=self.url_max_len,
                 url_vocab_size=self.url_vocab_size,
-                html_tokenizer=self.html_tokenizer,
+                html_tokenizer=tokenizer,
                 html_max_len=self.html_max_len,
                 visual_transform=train_transform,
                 image_dir=self.image_dir,
@@ -373,7 +189,7 @@ class MultimodalDataModule(pl.LightningDataModule):
                 val_df,
                 url_max_len=self.url_max_len,
                 url_vocab_size=self.url_vocab_size,
-                html_tokenizer=self.html_tokenizer,
+                html_tokenizer=tokenizer,
                 html_max_len=self.html_max_len,
                 visual_transform=eval_transform,
                 image_dir=self.image_dir,
@@ -384,14 +200,13 @@ class MultimodalDataModule(pl.LightningDataModule):
                 test_df,
                 url_max_len=self.url_max_len,
                 url_vocab_size=self.url_vocab_size,
-                html_tokenizer=self.html_tokenizer,
+                html_tokenizer=tokenizer,
                 html_max_len=self.html_max_len,
                 visual_transform=eval_transform,
                 image_dir=self.image_dir,
             )
 
-        log.info(">> Multimodal DataModule setup complete!")
-
+    # ------------------------------------------------------------------ #
     def train_dataloader(self) -> DataLoader:
         return DataLoader(
             self.train_dataset,
@@ -421,3 +236,167 @@ class MultimodalDataModule(pl.LightningDataModule):
             pin_memory=self.pin_memory,
             persistent_workers=self.num_workers > 0,
         )
+
+    # ------------------------------------------------------------------ #
+    def _load_dataframe(self) -> pd.DataFrame:
+        if self.master_csv and self.master_csv.exists():
+            log.info(">> Loading master CSV: %s", self.master_csv)
+            return pd.read_csv(self.master_csv)
+
+        if not all(
+            path and path.exists()
+            for path in (self.url_data_path, self.html_data_path, self.visual_data_path)
+        ):
+            raise FileNotFoundError(
+                "Master CSV not provided and modality CSVs missing."
+            )
+
+        log.info(">> Loading modality CSVs individually.")
+        df_url = pd.read_csv(self.url_data_path)
+        df_html = pd.read_csv(self.html_data_path)
+        df_visual = pd.read_csv(self.visual_data_path)
+
+        merge_key = "sample_id" if "sample_id" in df_url.columns else "url"
+        df_merged = df_url.merge(
+            df_html, on=merge_key, how="inner", suffixes=("", "_html")
+        )
+        df_merged = df_merged.merge(
+            df_visual, on=merge_key, how="inner", suffixes=("", "_vis")
+        )
+        log.info(">> After inner join: %d samples", len(df_merged))
+        return df_merged
+
+    def _determine_splits(
+        self, df: pd.DataFrame
+    ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+        protocol = self.split_protocol
+        if self.use_presplit and "split" in df.columns:
+            train_df = df[df["split"] == "train"].copy()
+            val_df = df[df["split"] == "val"].copy()
+            test_df = df[df["split"] == "test"].copy()
+            self.split_metadata = self._summarize_splits(
+                train_df,
+                val_df,
+                test_df,
+                protocol="presplit",
+                details={"source": "csv_split_column"},
+            )
+            return train_df, val_df, test_df
+
+        class SplitCfg:
+            def __init__(self, proto: str):
+                self.protocol = proto
+                self.data = {"split_ratios": {"train": 0.7, "val": 0.15, "test": 0.15}}
+
+            def get(self, key: str, default=None):
+                return getattr(self, key, default)
+
+        cfg_stub = SplitCfg(protocol)
+        train_df, val_df, test_df, metadata = build_splits(
+            df, cfg_stub, protocol=protocol if protocol != "presplit" else "random"
+        )
+
+        if metadata.get("downgraded_to"):
+            log.warning(
+                "Split protocol downgraded from %s to %s (%s).",
+                metadata["protocol"],
+                metadata["downgraded_to"],
+                metadata.get("downgrade_reason"),
+            )
+
+        actual_protocol = metadata.get("downgraded_to") or metadata.get(
+            "protocol", "random"
+        )
+        self.split_metadata = self._summarize_splits(
+            train_df,
+            val_df,
+            test_df,
+            protocol=actual_protocol,
+            details={
+                "requested_protocol": protocol,
+                "metadata": metadata,
+            },
+        )
+        return train_df, val_df, test_df
+
+    def _build_transforms(self) -> Tuple[transforms.Compose, transforms.Compose]:
+        eval_transform = transforms.Compose(
+            [
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                ),
+            ]
+        )
+        if not self.use_augmentation:
+            return eval_transform, eval_transform
+        train_transform = transforms.Compose(
+            [
+                transforms.Resize(256),
+                transforms.RandomCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(
+                    mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+                ),
+            ]
+        )
+        return train_transform, eval_transform
+
+    def _summarize_splits(
+        self,
+        train_df: pd.DataFrame,
+        val_df: pd.DataFrame,
+        test_df: pd.DataFrame,
+        protocol: str,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        summary = {
+            "protocol": protocol,
+            "details": details or {},
+            "splits": {
+                "train": self._summarize_split(train_df),
+                "val": self._summarize_split(val_df),
+                "test": self._summarize_split(test_df),
+            },
+        }
+        return summary
+
+    def _summarize_split(self, df: pd.DataFrame) -> Dict[str, Any]:
+        ids = self._extract_ids(df)
+        summary = {
+            "count": int(len(df)),
+            "positive": (
+                int((df["label"] == 1).sum()) if "label" in df.columns else None
+            ),
+            "negative": (
+                int((df["label"] == 0).sum()) if "label" in df.columns else None
+            ),
+            "brands": (
+                sorted(df["brand"].dropna().astype(str).unique().tolist())
+                if "brand" in df.columns
+                else []
+            ),
+            "timestamp_range": self._timestamp_range(df),
+            "ids": ids,
+        }
+        return summary
+
+    @staticmethod
+    def _extract_ids(df: pd.DataFrame) -> list:
+        for key in ("sample_id", "id", "url"):
+            if key in df.columns:
+                return df[key].astype(str).tolist()
+        return df.index.astype(str).tolist()
+
+    @staticmethod
+    def _timestamp_range(df: pd.DataFrame) -> Dict[str, Optional[str]]:
+        if "timestamp" not in df.columns:
+            return {"min": None, "max": None}
+        ts = pd.to_datetime(df["timestamp"], errors="coerce")
+        return {
+            "min": None if ts.isna().all() else str(ts.min()),
+            "max": None if ts.isna().all() else str(ts.max()),
+        }

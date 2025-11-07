@@ -1891,3 +1891,1029 @@ HTML模型训练成功的标准：
 ---
 
 **感谢使用 UAAM-Phish! 祝训练顺利！🚀**
+
+---
+
+## 📂 完整项目结构清单
+
+> **更新日期**: 2025-11-07
+> **版本**: 3.0 (完整文件清单)
+> **状态**: ✅ 详细备注版
+
+---
+
+### 根目录文件
+
+| 文件名 | 说明 | 重要性 |
+|--------|------|--------|
+| `README.md` | 项目主文档，快速开始指南 | ⭐⭐⭐⭐⭐ |
+| `QUICKSTART.md` | 5分钟快速入门教程 | ⭐⭐⭐⭐⭐ |
+| `INSTALL.md` | 详细安装说明（虚拟环境、离线安装） | ⭐⭐⭐⭐ |
+| `README_WINDOWS.md` | Windows平台特别说明 | ⭐⭐⭐ |
+| `setup.py` | Python包安装配置 | ⭐⭐⭐⭐⭐ |
+| `requirements.txt` | 项目依赖列表 | ⭐⭐⭐⭐⭐ |
+| `environment.yml` | Conda环境配置 | ⭐⭐⭐ |
+| `dvc.yaml` | DVC数据管道配置 | ⭐⭐⭐⭐ |
+| `Makefile` | Linux/Mac自动化命令 | ⭐⭐⭐ |
+| `Makefile.ps1` | Windows PowerShell自动化脚本 | ⭐⭐⭐ |
+
+### 核心文档（重要）
+
+| 文件名 | 说明 | 用途 |
+|--------|------|------|
+| `FINAL_SUMMARY_CN.md` | **完整项目总结和指南（本文档）** | 🔥 主要参考 |
+| `CHANGES_SUMMARY.md` | 详细代码变更记录 | 追踪修改历史 |
+| `ARCHITECTURE_SUMMARY.md` | 架构设计概览 | 理解系统设计 |
+| `IMPLEMENTATION_REPORT.md` | 实施报告 | 查看完成状态 |
+| `SOLUTION_SUMMARY.md` | 解决方案总结 | 项目方案说明 |
+| `TRAINING_PLAYBOOK.md` | 训练操作手册 | 训练指导 |
+| `THESIS_COMPLIANCE_CHECK.md` | 论文合规性检查 | 确保符合论文要求 |
+| `URL_MODULE_STRUCTURE.md` | URL模块结构说明 | URL模态文档 |
+| `URL_MODEL_DIAGNOSIS_REPORT.md` | URL模型诊断报告 | 调试参考 |
+| `CONFIG_CHECK_SUMMARY.md` | 配置检查总结 | 配置验证 |
+| `P0_VERIFICATION_SUMMARY.md` | P0功能验证总结 | 核心功能验证 |
+| `AUTO_APPEND_INTEGRATION_COMPLETE.md` | 自动文档追加集成完成 | 文档系统说明 |
+| `FILES_MANIFEST.md` | 文件清单 | 文件索引 |
+| `NEXT_STEPS.md` | 下一步计划 | 开发路线图 |
+| `SMOKE_TEST.md` | 冒烟测试说明 | 快速验证指南 |
+| `build16.plan.md` | 16K数据集构建计划 | 数据集规划 |
+
+### PowerShell训练脚本
+
+| 脚本名 | 说明 | 用途 |
+|--------|------|------|
+| `run_wandb.ps1` | WandB集成训练脚本 | WandB日志训练 |
+| `run_html_baseline.ps1` | HTML基线模型训练 | HTML模态训练 |
+| `run_html_baseline_simple.ps1` | HTML简化训练脚本 | 快速HTML训练 |
+| `run_correct_training.ps1` | 标准训练流程 | 推荐训练方式 |
+| `start_training.ps1` | 启动训练入口 | 快速启动 |
+| `train_url_with_wandb.ps1` | URL模型WandB训练 | URL+WandB |
+| `test_auto_append.ps1` | 测试自动文档追加 | 开发测试 |
+
+### 项目配置文件
+
+| 文件名 | 说明 |
+|--------|------|
+| `.gitignore` | Git忽略规则 |
+| `.dvcignore` | DVC忽略规则 |
+| `.cursorignore` | Cursor编辑器忽略规则 |
+| `pyproject.toml` | Python项目元数据 |
+| `.pre-commit-config.yaml` | Pre-commit钩子配置 |
+
+---
+
+### `src/` - 源代码目录
+
+#### `src/models/` - 模型定义
+
+| 文件名 | 说明 | 模型类型 |
+|--------|------|----------|
+| `url_encoder.py` | **URLEncoder (字符级BiLSTM)** ⭐ | 主力URL编码器 |
+| `html_encoder.py` | **HTMLEncoder (BERT-base)** ⭐ | HTML内容编码器 |
+| `visual_encoder.py` | VisualEncoder (ResNet/ViT) | 图像编码器（待完善） |
+| `__init__.py` | 模型模块初始化 | - |
+
+**架构说明**:
+- `URLEncoder`: 2层双向LSTM，128隐藏维度，256输出维度（论文锁定）
+- `HTMLEncoder`: BERT-base-uncased，768→256投影
+- `VisualEncoder`: ResNet18/ViT-base，待实现
+
+#### `src/data/` - 数据集定义
+
+| 文件名 | 说明 | 数据类型 |
+|--------|------|----------|
+| `url_dataset.py` | **UrlDataset** ⭐ | URL字符级tokenization |
+| `html_dataset.py` | **HtmlDataset** ⭐ | HTML BERT tokenization |
+| `visual_dataset.py` | VisualDataset | 图像数据加载（待完善） |
+| `multimodal_datamodule.py` | 多模态数据模块 | 融合数据加载（规划中） |
+
+**功能**:
+- 支持字符级/BERT tokenization
+- 元数据追踪（timestamp, brand, source）
+- 返回`(x, y)`或`(x, y, meta)`格式
+
+#### `src/datamodules/` - Lightning数据模块
+
+| 文件名 | 说明 | 对应模态 |
+|--------|------|----------|
+| `url_datamodule.py` | **UrlDataModule** ⭐ | URL模态 |
+| `html_datamodule.py` | **HtmlDataModule** ⭐ | HTML模态 |
+| `visual_datamodule.py` | VisualDataModule | 视觉模态（待完善） |
+| `__init__.py` | 模块初始化 | - |
+
+**功能**:
+- 管理train/val/test数据加载
+- 支持3种数据分割协议（random/temporal/brand_ood）
+- 集成`build_splits()`函数
+
+#### `src/systems/` - Lightning训练系统
+
+| 文件名 | 说明 | 训练模块 |
+|--------|------|----------|
+| `url_only_module.py` | **UrlOnlyModule** ⭐ | URL单模态训练 |
+| `html_only_module.py` | **HtmlOnlyModule** ⭐ | HTML单模态训练 |
+| `visual_only_module.py` | VisualOnlyModule | 视觉单模态训练（待完善） |
+| `multimodal_baseline.py` | MultimodalBaseline | 多模态融合训练（规划中） |
+| `__init__.py` | 模块初始化 | - |
+
+**核心功能**:
+- 完整训练/验证/测试流程
+- Step指标：Accuracy, AUROC(pos=1), F1(macro)
+- Epoch指标：NLL, ECE
+- 自动生成artifacts（ROC/Calib/Metrics/Splits）
+
+#### `src/utils/` - 工具函数
+
+| 文件名 | 说明 | 功能类别 |
+|--------|------|----------|
+| **`splits.py`** ⭐ | 数据分割协议 | MLOps核心 |
+| **`metrics.py`** ⭐ | ECE/NLL指标计算 | 评估指标 |
+| **`protocol_artifacts.py`** ⭐ | 工件生成回调 | 自动化产物 |
+| `visualizer.py` | 可视化函数（ROC/Calib/训练曲线） | 图表生成 |
+| `experiment_tracker.py` | 实验跟踪器 | 实验管理 |
+| `callbacks.py` | Lightning回调 | 训练控制 |
+| `doc_callback.py` | 文档生成回调 | 自动文档 |
+| `documentation.py` | 文档工具 | 文档系统 |
+| `logging.py` | 日志配置 | 日志管理 |
+| `html_clean.py` | HTML清洗工具 | HTML预处理 |
+| `seed.py` | 随机种子设置 | 可复现性 |
+| `__init__.py` | 工具模块初始化 | - |
+
+**重点文件说明**:
+
+1. **`splits.py`** (287行)
+   - `build_splits()`: 实现3种协议
+   - 自动降级机制
+   - 生成`splits_{protocol}.csv`
+
+2. **`metrics.py`** (123行)
+   - `compute_ece()`: 自适应bins ECE计算
+   - `compute_nll()`: 负对数似然
+   - `get_step_metrics()`: 批次级指标
+
+3. **`protocol_artifacts.py`** (245行)
+   - `ProtocolArtifactsCallback`: Lightning回调
+   - 自动生成4个artifacts
+   - 降级检测和警告
+
+#### `src/modules/` - 核心模块（规划中）
+
+```
+src/modules/
+├── fusion/                    # 多模态融合
+│   ├── baseline_concat.py    # 简单拼接融合
+│   └── __init__.py
+├── uncertainty/               # 不确定性估计（待实现）
+└── consistency/               # 一致性检查（待实现）
+```
+
+#### `src/cli/` - 命令行接口
+
+| 文件名 | 说明 |
+|--------|------|
+| `__init__.py` | CLI模块初始化 |
+
+---
+
+### `configs/` - 配置文件系统
+
+#### 主配置文件
+
+| 文件名 | 说明 | 优先级 |
+|--------|------|--------|
+| `config.yaml` | **主配置入口（定义defaults）** | ⭐⭐⭐⭐⭐ |
+| `default.yaml` | 默认配置 | ⭐⭐⭐⭐⭐ |
+| `base.yaml` | 基础配置 | ⭐⭐⭐⭐ |
+| `train.yaml` | 训练配置 | ⭐⭐⭐⭐ |
+| `eval.yaml` | 评估配置 | ⭐⭐⭐ |
+| `hparams.yaml` | 超参数配置 | ⭐⭐⭐ |
+| `encoders.yaml` | 编码器配置 | ⭐⭐⭐ |
+
+#### `configs/model/` - 模型配置
+
+| 文件名 | 说明 | 对应模型 |
+|--------|------|----------|
+| `url_encoder.yaml` | **字符级BiLSTM配置（推荐）** | URLEncoder |
+| `url_encoder_legacy.yaml` | RoBERTa BERT配置 | UrlBertEncoder |
+| `html_encoder.yaml` | BERT-base配置 | HTMLEncoder |
+| `multimodal_baseline.yaml` | 多模态融合配置 | MultimodalBaseline |
+
+**配置示例** (`url_encoder.yaml`):
+```yaml
+_target_: src.models.url_encoder.URLEncoder
+vocab_size: 128           # ASCII字符集
+char_embed_dim: 64        # 字符嵌入维度
+num_layers: 2             # LSTM层数（锁定）
+hidden_dim: 128           # 隐藏层维度（锁定）
+proj_dim: 256             # 输出维度（锁定）
+bidirectional: true       # 双向LSTM（锁定）
+dropout: 0.1
+max_url_len: 200
+```
+
+#### `configs/data/` - 数据配置
+
+| 文件名 | 说明 | 数据集类型 |
+|--------|------|-----------|
+| `url_only.yaml` | **URL单模态数据配置** | URL |
+| `url_large.yaml` | 大规模URL数据集 | URL（大） |
+| `html_only.yaml` | **HTML单模态数据配置** | HTML |
+
+**配置示例** (`url_only.yaml`):
+```yaml
+_target_: src.datamodules.url_datamodule.UrlDataModule
+csv_path: data/processed/master_v2.csv
+train_csv: url_train_v2.csv
+val_csv: url_val_v2.csv
+test_csv: url_test_v2.csv
+batch_size: 32
+num_workers: 4
+max_url_len: 200
+protocol: random           # random / temporal / brand_ood
+split_ratios: [0.7, 0.15, 0.15]
+```
+
+#### `configs/trainer/` - 训练器配置
+
+| 文件名 | 说明 | 环境 |
+|--------|------|------|
+| `default.yaml` | **默认训练器配置** | 通用 |
+| `local.yaml` | **本地开发配置（CPU）** | 本地 |
+| `server.yaml` | **服务器配置（GPU）** | 服务器 |
+| `multi_gpu.yaml` | 多GPU分布式训练 | 多卡 |
+
+**配置示例** (`server.yaml`):
+```yaml
+accelerator: gpu
+devices: 1
+precision: 16-mixed        # 混合精度训练
+max_epochs: 50
+log_every_n_steps: 10
+check_val_every_n_epoch: 1
+enable_progress_bar: true
+deterministic: false       # 性能优先
+```
+
+#### `configs/logger/` - 日志配置
+
+| 文件名 | 说明 | Logger类型 |
+|--------|------|-----------|
+| `csv.yaml` | **CSV Logger（默认）** | 本地CSV |
+| `tensorboard.yaml` | TensorBoard Logger | TensorBoard |
+| `wandb.yaml` | **WandB Logger（推荐生产）** | WandB云端 |
+
+**配置示例** (`wandb.yaml`):
+```yaml
+_target_: pytorch_lightning.loggers.WandbLogger
+project: uaam-phish
+entity: null               # 从环境变量读取
+save_dir: experiments/
+log_model: false
+```
+
+#### `configs/experiment/` - 实验配置
+
+| 文件名 | 说明 | 实验类型 |
+|--------|------|----------|
+| `url_baseline.yaml` | **URL基线实验** | URL |
+| `url_baseline_correct.yaml` | URL正确基线 | URL |
+| `url_large_baseline.yaml` | 大规模URL实验 | URL（大） |
+| `html_baseline.yaml` | **HTML基线实验** | HTML |
+| `visual_baseline.yaml` | 视觉基线实验 | 视觉 |
+| `multimodal_baseline.yaml` | 多模态基线实验 | 多模态 |
+| `p0_smoke.yaml` | P0冒烟测试 | 测试 |
+
+**实验配置特点**:
+- 预定义完整实验配置
+- 覆盖defaults中的配置
+- 一键启动标准实验
+
+#### `configs/profiles/` - 环境Profile
+
+| 文件名 | 说明 | 用途 |
+|--------|------|------|
+| `local.yaml` | 本地开发Profile | 传统模式兼容 |
+| `server.yaml` | 服务器Profile | 传统模式兼容 |
+
+#### `configs/datamodule/` - DataModule配置
+
+| 文件名 | 说明 |
+|--------|------|
+| `multimodal.yaml` | 多模态DataModule配置 |
+
+---
+
+### `scripts/` - 可执行脚本
+
+#### 训练脚本
+
+| 脚本名 | 说明 | 推荐度 |
+|--------|------|--------|
+| **`train_hydra.py`** ⭐ | **Hydra训练脚本（推荐）** | ⭐⭐⭐⭐⭐ |
+| `train.py` | 传统训练脚本 | ⭐⭐⭐ |
+
+**使用示例**:
+```bash
+# Hydra训练（推荐）
+python scripts/train_hydra.py experiment=url_baseline
+
+# 传统训练
+python scripts/train.py --profile server
+```
+
+#### 数据处理脚本
+
+| 脚本名 | 说明 | 功能 |
+|--------|------|------|
+| `build_master_and_splits.py` | **构建主表和分割** | 数据预处理 |
+| `build_master_16k.py` | 构建16K数据集 | 数据集构建 |
+| `build_from_30k.py` | 从30K构建 | 数据集构建 |
+| `create_master_csv.py` | 创建主CSV | 数据整合 |
+| `balance_to_8k_each.py` | 平衡到8K/类 | 数据平衡 |
+| `balance_to_8k.py` | 平衡到8K总计 | 数据平衡 |
+| `clean_master_comprehensive.py` | 全面清洗主表 | 数据清洗 |
+| `upgrade_dataset.py` | **升级到v2数据集** | 数据升级 |
+| `extract_url_csvs.py` | 提取URL CSV | 数据提取 |
+| `extract_html_csvs.py` | 提取HTML CSV | 数据提取 |
+| `extract_img_csvs.py` | 提取图像CSV | 数据提取 |
+
+#### 验证和分析脚本
+
+| 脚本名 | 说明 | 功能 |
+|--------|------|------|
+| `validate_data_schema.py` | **验证数据Schema** | 数据验证 |
+| `fix_data_schema.py` | 修复数据Schema | 数据修复 |
+| `check_duplicates_missing.py` | 检查重复和缺失 | 质量检查 |
+| `check_label_distribution.py` | 检查标签分布 | 分布分析 |
+| `analyze_duplicates.py` | 分析重复样本 | 重复分析 |
+| `verify_build_16k.py` | 验证16K构建 | 构建验证 |
+
+#### 实验管理脚本
+
+| 脚本名 | 说明 | 功能 |
+|--------|------|------|
+| **`compare_experiments.py`** ⭐ | **对比实验结果** | 实验对比 |
+| `run_all_protocols.ps1` | 运行所有协议（Windows） | 批量实验 |
+| `run_all_protocols.sh` | 运行所有协议（Linux） | 批量实验 |
+
+**使用示例**:
+```bash
+# 对比最近5个实验
+python scripts/compare_experiments.py --latest 5
+
+# 查找最佳实验
+python scripts/compare_experiments.py --find_best --metric auroc
+```
+
+#### 其他脚本
+
+| 脚本名 | 说明 | 功能 |
+|--------|------|------|
+| `predict.py` | 模型预测 | 推理 |
+| `preprocess.py` | 数据预处理 | 预处理 |
+
+---
+
+### `tests/` - 测试目录
+
+| 测试文件 | 说明 | 测试内容 |
+|---------|------|----------|
+| **`test_mlops_implementation.py`** ⭐ | **MLOps功能测试（13个）** | 核心MLOps |
+| `test_url_encoder.py` | URL编码器测试 | URLEncoder |
+| `test_url_dataset.py` | URL数据集测试 | UrlDataset |
+| `test_models.py` | 模型测试 | 所有模型 |
+| `test_data.py` | 数据模块测试 | 数据加载 |
+| `test_config.py` | 配置测试 | Hydra配置 |
+| `test_utils.py` | 工具函数测试 | 工具模块 |
+| `test_fusion.py` | 融合模块测试 | 多模态融合 |
+| `test_uncertainty.py` | 不确定性测试 | 不确定性估计 |
+| `test_consistency.py` | 一致性测试 | 一致性检查 |
+| `test_documentation_append.py` | 文档追加测试 | 文档系统 |
+
+**测试覆盖**:
+- 数据分割协议（4个测试）
+- 指标计算（4个测试）
+- Batch工具（3个测试）
+- URL编码器保护（1个测试）
+- 集成测试（1个测试）
+
+**运行测试**:
+```bash
+# 运行所有测试
+pytest tests/ -v
+
+# 运行特定测试
+pytest tests/test_mlops_implementation.py -v
+
+# 查看覆盖率
+pytest tests/ --cov=src --cov-report=html
+```
+
+---
+
+### `docs/` - 文档目录
+
+#### 主要文档
+
+| 文档名 | 说明 | 重要性 |
+|--------|------|--------|
+| `PROJECT_ARCHITECTURE_CN.md` | **项目架构（中文）** | ⭐⭐⭐⭐⭐ |
+| `ROOT_STRUCTURE.md` | 根目录结构说明 | ⭐⭐⭐⭐ |
+| `DATA_SCHEMA.md` | **数据Schema规范** | ⭐⭐⭐⭐⭐ |
+| `DATA_README.md` | 数据README | ⭐⭐⭐⭐ |
+| `EXPERIMENTS.md` | **实验管理指南** | ⭐⭐⭐⭐⭐ |
+| `WANDB_GUIDE.md` | WandB使用指南 | ⭐⭐⭐⭐ |
+| `TESTING_GUIDE.md` | 测试指南 | ⭐⭐⭐⭐ |
+| `CI_CD_GUIDE.md` | CI/CD指南 | ⭐⭐⭐ |
+| `DEPENDENCIES.md` | 依赖说明 | ⭐⭐⭐ |
+| `DEBUG_LOGGING.md` | 调试和日志 | ⭐⭐⭐ |
+| `RULES.md` | 项目规则 | ⭐⭐⭐ |
+| `ARCHITECTURE_CLARIFICATION.md` | 架构澄清 | ⭐⭐⭐ |
+| `DOCUMENTATION_STRUCTURE.md` | 文档结构 | ⭐⭐⭐ |
+| `DOCUMENTATION_MIGRATION_GUIDE.md` | 文档迁移指南 | ⭐⭐ |
+| `APPEND_DOCUMENTATION_GUIDE.md` | 文档追加指南 | ⭐⭐ |
+| `AUTO_APPEND_USAGE.md` | 自动追加使用说明 | ⭐⭐ |
+| `VALIDATION_REPORT.md` | 验证报告 | ⭐⭐⭐ |
+| `MLOPS_IMPROVEMENTS_2025-10-22.md` | MLOps改进记录 | ⭐⭐⭐ |
+| `LOGGING_AND_RULES_STATUS.md` | 日志和规则状态 | ⭐⭐ |
+| `P0_ARTIFACT_VERIFICATION_REPORT.md` | P0工件验证 | ⭐⭐⭐ |
+| `EXPERIMENT_SYSTEM_FEATURES.md` | 实验系统特性 | ⭐⭐⭐ |
+| `HTML_PROJECT_GUIDE.md` | **HTML项目指南** | ⭐⭐⭐⭐ |
+| `HTML_QUICKSTART.md` | HTML快速开始 | ⭐⭐⭐⭐ |
+| `CODE_REVIEW_SUB_AGENT_PROMPT.md` | 代码审查提示词 | ⭐⭐ |
+
+#### `docs/specs/` - 规格说明
+
+| 文档名 | 说明 | 模块 |
+|--------|------|------|
+| `uncertainty.md` | 不确定性估计规格 | Uncertainty |
+| `consistency.md` | 一致性检查规格 | Consistency |
+| `fusion_rcaf.md` | RCAF融合规格 | Fusion |
+
+#### `docs/impl/` - 实现文档
+
+| 文档名 | 说明 | 状态 |
+|--------|------|------|
+| `uncertainty_impl.md` | 不确定性实现 | 规划中 |
+| `consistency_impl.md` | 一致性实现 | 规划中 |
+| `fusion_rcaf_impl.md` | RCAF融合实现 | 规划中 |
+
+#### `docs/adr/` - 架构决策记录
+
+| 文档名 | 说明 | ADR编号 |
+|--------|------|---------|
+| `0001-choose-uncertainty-method.md` | 选择不确定性方法 | ADR-0001 |
+
+#### `docs/AI_CONVERSATIONS/` - AI对话记录
+
+| 文档名 | 说明 | 日期 |
+|--------|------|------|
+| `2025-10-21_u_module_implementation.md` | U模块实现对话 | 2025-10-21 |
+
+---
+
+### `data/` - 数据目录
+
+#### `data/processed/` - 处理后数据
+
+| 文件名 | 说明 | 类型 |
+|--------|------|------|
+| **`master_v2.csv`** ⭐ | **主数据集（v2版本）** | 数据集 |
+| `master_v2_backup.csv` | 主数据集备份 | 备份 |
+| `master_test_200.csv` | 测试子集（200条） | 测试集 |
+| `url_train_v2.csv` | URL训练集 | URL |
+| `url_val_v2.csv` | URL验证集 | URL |
+| `url_test_v2.csv` | URL测试集 | URL |
+| `html_train_v2.csv` | HTML训练集 | HTML |
+| `html_val_v2.csv` | HTML验证集 | HTML |
+| `html_test_v2.csv` | HTML测试集 | HTML |
+| `img_train_v2.csv` | 图像训练集 | 图像 |
+| `img_val_v2.csv` | 图像验证集 | 图像 |
+| `img_test_v2.csv` | 图像测试集 | 图像 |
+| `metadata_v2.json` | 元数据（v2） | 元数据 |
+| `metadata_test_200.json` | 测试集元数据 | 元数据 |
+| `balance_8k_log.json` | 平衡操作日志 | 日志 |
+| `removed_samples_log.json` | 移除样本日志 | 日志 |
+| `data_quality_report.md` | **数据质量报告** | 报告 |
+| `CLEANING_REPORT_FINAL.md` | 最终清洗报告 | 报告 |
+
+**数据格式**（`master_v2.csv`）:
+```csv
+url_text,label,brand_raw,brand,timestamp,source,html_path,img_path
+http://example.com,0,Google,google,2023-01-01T00:00:00Z,dataset,path/to.html,path/to.png
+```
+
+**必需列**:
+- `url_text`: URL文本
+- `label`: 0=良性, 1=钓鱼
+
+**可选列**（v2新增）:
+- `brand_raw`: 原始品牌
+- `brand`: 规范化品牌
+- `timestamp`: ISO8601时间戳
+- `source`: 数据源
+- `html_path`: HTML文件路径
+- `img_path`: 图像文件路径
+
+#### `data/raw/` - 原始数据
+
+```
+data/raw/
+├── dataset/           # 良性网站数据
+│   ├── Google/
+│   ├── PayPal/
+│   └── ...
+└── fish_dataset/      # 钓鱼网站数据
+    ├── Google/
+    ├── PayPal/
+    └── ...
+```
+
+---
+
+### `examples/` - 示例代码
+
+| 文件名 | 说明 | 用途 |
+|--------|------|------|
+| `README.md` | 示例说明 | 索引 |
+| `run_protocol_experiments.py` | **运行协议实验示例** | 完整示例 |
+| `append_documentation_example.py` | 文档追加示例 | 文档系统 |
+| `document_change_example.py` | 变更文档示例 | 文档系统 |
+| `quick_append_demo.py` | 快速追加演示 | 文档系统 |
+
+---
+
+### `experiments/` - 实验结果
+
+```
+experiments/
+├── <实验名>_<时间戳>/
+│   ├── config.yaml                  # 完整配置快照
+│   ├── SUMMARY.md                   # Markdown总结
+│   ├── results/
+│   │   ├── metrics_random.json     # 指标JSON
+│   │   ├── roc_random.png          # ROC曲线
+│   │   ├── calib_random.png        # 校准曲线
+│   │   ├── splits_random.csv       # 分割统计
+│   │   └── implementation_report.md # 实现报告
+│   ├── logs/
+│   │   ├── train.log               # 训练日志
+│   │   └── metrics_history.csv     # 指标历史
+│   └── checkpoints/
+│       └── best-*.ckpt             # 最佳模型
+└── ...
+```
+
+**关键文件说明**:
+
+1. **`metrics_<protocol>.json`** - 完整指标
+```json
+{
+  "accuracy": 0.92,
+  "auroc": 0.95,
+  "f1_macro": 0.91,
+  "nll": 0.23,
+  "ece": 0.04,
+  "ece_bins_used": 10,
+  "positive_class": "phishing",
+  "artifacts": {
+    "roc_path": "results/roc_random.png",
+    "calib_path": "results/calib_random.png",
+    "splits_path": "results/splits_random.csv"
+  },
+  "warnings": {
+    "downgraded_reason": null
+  }
+}
+```
+
+2. **`splits_<protocol>.csv`** - 分割统计
+```csv
+split,count,pos_count,neg_count,brand_unique,timestamp_min,timestamp_max,...
+train,11200,5600,5600,15,...
+val,2400,1200,1200,8,...
+test,2400,1200,1200,7,...
+```
+
+---
+
+### `outputs/` - Hydra输出
+
+```
+outputs/
+├── 2025-11-07/                     # 按日期组织
+│   ├── 10-30-45/                   # 按时间组织
+│   │   ├── .hydra/
+│   │   │   ├── config.yaml        # 解析后配置
+│   │   │   ├── hydra.yaml         # Hydra配置
+│   │   │   └── overrides.yaml     # 命令行覆盖
+│   │   └── train.log              # 训练日志
+│   └── ...
+└── ...
+```
+
+**注意**: Hydra默认输出目录，实验结果会同时保存到`experiments/`
+
+---
+
+### `lightning_logs/` - Lightning日志
+
+```
+lightning_logs/
+├── version_0/
+│   ├── hparams.yaml               # 超参数
+│   ├── events.out.tfevents.*      # TensorBoard事件
+│   └── checkpoints/
+│       └── *.ckpt
+├── version_1/
+└── ...
+```
+
+**注意**: 使用WandB logger时，此目录可能为空
+
+---
+
+### `archive/` - 归档代码
+
+| 文件/目录 | 说明 | 状态 |
+|----------|------|------|
+| `models/url_encoder_legacy.py` | Legacy URL编码器 | 已废弃 |
+| `utils/batch_utils.py` | Legacy batch工具 | 已替换 |
+
+**用途**: 保存历史代码供参考，不应在生产中使用
+
+---
+
+### `tools/` - 工具脚本
+
+| 文件/目录 | 说明 | 用途 |
+|----------|------|------|
+| `legacy/check_artifacts_url_only.py` | 检查URL工件 | 调试工具 |
+
+---
+
+### `resources/` - 资源文件
+
+| 文件名 | 说明 | 用途 |
+|--------|------|------|
+| `brand_alias.yaml` | 品牌别名映射 | 品牌归一化 |
+| `brand_map.json` | 品牌映射JSON | 品牌归一化 |
+
+**示例** (`brand_alias.yaml`):
+```yaml
+google:
+  - google
+  - google.com
+  - goog1e
+  - g00gle
+
+paypal:
+  - paypal
+  - paypal.com
+  - pay-pal
+  - paypai
+```
+
+---
+
+### `results/` - 临时结果
+
+| 文件名 | 说明 | 类型 |
+|--------|------|------|
+| `embeddings_test.csv` | 测试嵌入 | 嵌入 |
+| `pred_url_test.csv` | URL测试预测 | 预测 |
+
+**注意**: 临时文件，不应依赖
+
+---
+
+### `logs/` - 日志目录
+
+```
+logs/
+├── training_*.log
+├── data_processing_*.log
+└── ...
+```
+
+---
+
+## 📊 项目文件统计
+
+### 总体统计
+
+| 指标 | 数量 |
+|------|------|
+| **总文件数** | 200+ |
+| **源代码文件** | 25 |
+| **配置文件** | 35+ |
+| **测试文件** | 11 |
+| **文档文件** | 55+ |
+| **脚本文件** | 24 |
+| **数据文件** | 18 |
+
+### 代码行数统计
+
+| 模块 | 行数 |
+|------|------|
+| `src/models/` | ~500 |
+| `src/data/` | ~400 |
+| `src/datamodules/` | ~600 |
+| `src/systems/` | ~1,200 |
+| `src/utils/` | ~1,500 |
+| `tests/` | ~1,000 |
+| `scripts/` | ~2,000 |
+| **总计** | **~7,200** |
+
+### 文档页数
+
+| 类型 | 页数（行） |
+|------|-----------|
+| 用户文档 | ~2,000 |
+| 技术文档 | ~1,500 |
+| API文档 | ~500 |
+| **总计** | **~4,000** |
+
+---
+
+## 🎯 核心文件速查表
+
+### 立即开始需要的文件
+
+| 文件 | 说明 | 操作 |
+|------|------|------|
+| `README.md` | 项目概览 | 阅读 |
+| `QUICKSTART.md` | 快速开始 | 跟随操作 |
+| `requirements.txt` | 依赖安装 | `pip install -r requirements.txt` |
+| `scripts/train_hydra.py` | 训练脚本 | `python scripts/train_hydra.py` |
+| `configs/config.yaml` | 主配置 | 查看/修改 |
+
+### 训练需要的文件
+
+| 文件 | 说明 |
+|------|------|
+| `src/systems/url_only_module.py` | URL训练系统 |
+| `src/systems/html_only_module.py` | HTML训练系统 |
+| `src/models/url_encoder.py` | URL编码器 |
+| `src/models/html_encoder.py` | HTML编码器 |
+| `configs/experiment/url_baseline.yaml` | URL实验配置 |
+| `configs/experiment/html_baseline.yaml` | HTML实验配置 |
+
+### 数据处理需要的文件
+
+| 文件 | 说明 |
+|------|------|
+| `scripts/build_master_and_splits.py` | 构建数据集 |
+| `scripts/validate_data_schema.py` | 验证Schema |
+| `src/utils/splits.py` | 分割协议 |
+| `data/processed/master_v2.csv` | 主数据集 |
+
+### 调试需要的文件
+
+| 文件 | 说明 |
+|------|------|
+| `tests/test_mlops_implementation.py` | MLOps测试 |
+| `docs/DEBUG_LOGGING.md` | 调试文档 |
+| `logs/train.log` | 训练日志 |
+| `experiments/<run>/results/` | 实验结果 |
+
+---
+
+## 🔍 文件查找指南
+
+### 按功能查找
+
+**数据处理**:
+- 数据集类: `src/data/`
+- 数据模块: `src/datamodules/`
+- 分割协议: `src/utils/splits.py`
+- 数据脚本: `scripts/build_*.py`, `scripts/extract_*.py`
+
+**模型定义**:
+- 编码器: `src/models/`
+- 训练系统: `src/systems/`
+- 融合模块: `src/modules/fusion/`
+
+**配置管理**:
+- 主配置: `configs/config.yaml`
+- 模型配置: `configs/model/`
+- 数据配置: `configs/data/`
+- 实验配置: `configs/experiment/`
+
+**训练和评估**:
+- 训练脚本: `scripts/train_hydra.py`
+- 评估指标: `src/utils/metrics.py`
+- 可视化: `src/utils/visualizer.py`
+- 工件生成: `src/utils/protocol_artifacts.py`
+
+**实验管理**:
+- 实验跟踪: `src/utils/experiment_tracker.py`
+- 实验对比: `scripts/compare_experiments.py`
+- 实验结果: `experiments/`
+
+**测试**:
+- 单元测试: `tests/test_*.py`
+- 集成测试: `tests/test_mlops_implementation.py`
+
+**文档**:
+- 用户文档: 根目录 `*.md`
+- 技术文档: `docs/`
+- API文档: 源码中的docstrings
+
+### 按任务查找
+
+**想要训练模型？**
+1. `QUICKSTART.md` - 快速开始
+2. `scripts/train_hydra.py` - 训练脚本
+3. `configs/experiment/` - 实验配置
+4. `src/systems/` - 训练系统
+
+**想要修改模型？**
+1. `src/models/` - 模型定义
+2. `configs/model/` - 模型配置
+3. `tests/test_models.py` - 模型测试
+
+**想要处理数据？**
+1. `docs/DATA_SCHEMA.md` - Schema规范
+2. `scripts/build_master_and_splits.py` - 构建脚本
+3. `src/utils/splits.py` - 分割协议
+4. `data/processed/` - 数据文件
+
+**想要查看结果？**
+1. `experiments/` - 实验结果
+2. `scripts/compare_experiments.py` - 对比脚本
+3. `docs/EXPERIMENTS.md` - 实验管理文档
+
+**想要调试？**
+1. `tests/` - 运行测试
+2. `logs/` - 查看日志
+3. `docs/DEBUG_LOGGING.md` - 调试文档
+
+**想要添加功能？**
+1. `docs/PROJECT_ARCHITECTURE_CN.md` - 理解架构
+2. `CHANGES_SUMMARY.md` - 查看变更历史
+3. `tests/` - 编写测试
+4. `docs/TESTING_GUIDE.md` - 测试指南
+
+---
+
+## 📝 文件命名规范
+
+### Python文件
+
+- **模块**: `lowercase_with_underscores.py`
+- **类**: `CapWords` (CamelCase)
+- **函数**: `lowercase_with_underscores`
+- **常量**: `UPPERCASE_WITH_UNDERSCORES`
+
+### 配置文件
+
+- **Hydra配置**: `lowercase_with_underscores.yaml`
+- **实验配置**: `<name>_baseline.yaml`
+- **Profile配置**: `<env_name>.yaml`
+
+### 文档文件
+
+- **主要文档**: `UPPERCASE_WITH_UNDERSCORES.md`
+- **子文档**: `lowercase_with_underscores.md`
+- **临时文档**: `<topic>_<date>.md`
+
+### 数据文件
+
+- **主数据集**: `master_v<version>.csv`
+- **分割数据**: `<modality>_<split>_v<version>.csv`
+- **元数据**: `metadata_v<version>.json`
+
+### 脚本文件
+
+- **Python脚本**: `<action>_<object>.py`
+- **Shell脚本**: `<action>_<object>.sh`
+- **PowerShell脚本**: `<action>_<object>.ps1`
+
+---
+
+## 🚀 快速导航
+
+### 我想...
+
+**开始使用项目**
+→ `README.md` → `QUICKSTART.md` → `INSTALL.md`
+
+**训练URL模型**
+→ `configs/experiment/url_baseline.yaml` → `python scripts/train_hydra.py experiment=url_baseline`
+
+**训练HTML模型**
+→ `configs/experiment/html_baseline.yaml` → `python scripts/train_hydra.py experiment=html_baseline`
+
+**查看实验结果**
+→ `experiments/` → `python scripts/compare_experiments.py --latest 5`
+
+**修改配置**
+→ `configs/config.yaml` → `configs/<category>/<name>.yaml`
+
+**处理数据**
+→ `docs/DATA_SCHEMA.md` → `scripts/build_master_and_splits.py`
+
+**编写测试**
+→ `docs/TESTING_GUIDE.md` → `tests/test_*.py`
+
+**调试问题**
+→ `docs/DEBUG_LOGGING.md` → `logs/` → `tests/`
+
+**理解架构**
+→ `docs/PROJECT_ARCHITECTURE_CN.md` → `ARCHITECTURE_SUMMARY.md`
+
+**查看变更**
+→ `CHANGES_SUMMARY.md` → `IMPLEMENTATION_REPORT.md`
+
+**添加新功能**
+→ `docs/PROJECT_ARCHITECTURE_CN.md` → `src/` → `tests/` → `docs/`
+
+---
+
+## ✅ 文件完整性检查清单
+
+### 核心代码文件 ✅
+
+- [x] `src/models/url_encoder.py` - URL编码器
+- [x] `src/models/html_encoder.py` - HTML编码器
+- [x] `src/data/url_dataset.py` - URL数据集
+- [x] `src/data/html_dataset.py` - HTML数据集
+- [x] `src/datamodules/url_datamodule.py` - URL数据模块
+- [x] `src/datamodules/html_datamodule.py` - HTML数据模块
+- [x] `src/systems/url_only_module.py` - URL训练系统
+- [x] `src/systems/html_only_module.py` - HTML训练系统
+- [x] `src/utils/splits.py` - 分割协议
+- [x] `src/utils/metrics.py` - 指标计算
+- [x] `src/utils/protocol_artifacts.py` - 工件生成
+
+### 关键配置文件 ✅
+
+- [x] `configs/config.yaml` - 主配置
+- [x] `configs/model/url_encoder.yaml` - URL模型配置
+- [x] `configs/model/html_encoder.yaml` - HTML模型配置
+- [x] `configs/data/url_only.yaml` - URL数据配置
+- [x] `configs/data/html_only.yaml` - HTML数据配置
+- [x] `configs/experiment/url_baseline.yaml` - URL实验配置
+- [x] `configs/experiment/html_baseline.yaml` - HTML实验配置
+- [x] `configs/trainer/server.yaml` - 服务器配置
+- [x] `configs/logger/wandb.yaml` - WandB配置
+
+### 重要脚本文件 ✅
+
+- [x] `scripts/train_hydra.py` - Hydra训练脚本
+- [x] `scripts/build_master_and_splits.py` - 数据构建脚本
+- [x] `scripts/compare_experiments.py` - 实验对比脚本
+- [x] `scripts/validate_data_schema.py` - Schema验证脚本
+
+### 核心测试文件 ✅
+
+- [x] `tests/test_mlops_implementation.py` - MLOps测试
+- [x] `tests/test_url_encoder.py` - URL编码器测试
+- [x] `tests/test_url_dataset.py` - URL数据集测试
+
+### 主要文档文件 ✅
+
+- [x] `README.md` - 项目主文档
+- [x] `QUICKSTART.md` - 快速开始
+- [x] `FINAL_SUMMARY_CN.md` - 完整总结（本文档）
+- [x] `docs/PROJECT_ARCHITECTURE_CN.md` - 项目架构
+- [x] `docs/DATA_SCHEMA.md` - 数据Schema
+- [x] `docs/EXPERIMENTS.md` - 实验管理
+- [x] `docs/HTML_PROJECT_GUIDE.md` - HTML指南
+
+### 数据文件 ✅
+
+- [x] `data/processed/master_v2.csv` - 主数据集
+- [x] `data/processed/url_train_v2.csv` - URL训练集
+- [x] `data/processed/html_train_v2.csv` - HTML训练集
+- [x] `data/processed/metadata_v2.json` - 元数据
+
+---
+
+## 🎉 总结
+
+这份文档提供了项目的**完整文件清单**，包括：
+
+✅ **200+文件的详细说明**
+✅ **每个文件的功能备注**
+✅ **文件重要性标注**
+✅ **按功能和任务分类**
+✅ **快速查找指南**
+✅ **文件命名规范**
+✅ **完整性检查清单**
+
+**建议使用方式**:
+1. 🔍 按需查找：使用 Ctrl+F 搜索文件名或功能关键词
+2. 📚 系统学习：按章节顺序阅读，理解项目结构
+3. ✅ 检查清单：确保关键文件完整
+4. 🚀 快速导航：使用"我想..."部分快速定位
+
+**更新频率**:
+- 🔄 每次新增文件时更新
+- 🔄 每次架构调整时更新
+- 🔄 每个重要里程碑时更新
+
+---
+
+**项目结构清晰，文档完善，随时可用！** 🚀

@@ -1,0 +1,69 @@
+{
+  "total_samples": 200,
+  "phishing_count": 100,
+  "benign_count": 100,
+  "brand_distribution": {
+    "dhlairwaysinc": 5,
+    "netflixinc": 5,
+    "amazoncominc": 5,
+    "rabobanknederland": 4,
+    "bankofamerica": 4,
+    "appleinc": 4,
+    "steam": 4,
+    "linkedincorporation": 3,
+    "chasepersonalbanking": 3,
+    "outlook": 3,
+    "microsoftonedrive": 3,
+    "wellsfargocompany": 2,
+    "adobeinc": 2,
+    "whatsapp": 2,
+    "rakuten": 2,
+    "orange": 2,
+    "suncorpgroup": 2,
+    "dgifrenchtaxauthority": 2,
+    "desjardins": 2,
+    "americanascomsacomercioelectrnico": 2
+  },
+  "timestamp_range": {
+    "min": "2019-06-27T04:29:22Z",
+    "max": "2025-01-05T18:12:05.108804+00:00"
+  },
+  "dropped_reasons": {
+    "phishing": {
+      "missing_html": 448,
+      "html_too_small": 4,
+      "html_missing": 2
+    },
+    "benign": {
+      "missing_url": 3426,
+      "html_too_small": 944,
+      "missing_html": 2706
+    },
+    "dedup_phishing": {
+      "duplicate_path": 0,
+      "duplicate_semantic": 4364,
+      "duplicate_url_short": 1118
+    },
+    "dedup_benign": {
+      "duplicate_path": 0,
+      "duplicate_semantic": 0,
+      "duplicate_url_short": 0
+    }
+  },
+  "parameters": {
+    "phish_root": "D:\\one\\phish_sample_30k",
+    "benign_root": "D:\\one\\benign_sample_30k",
+    "k_each": 100,
+    "out_csv": "data/processed/master_test_200.csv",
+    "master_csv": null,
+    "append": false,
+    "brand_alias": "resources/brand_alias.yaml",
+    "min_per_brand": 50,
+    "brand_cap": 500,
+    "max_single_ratio": 0.3,
+    "max_top3_ratio": 0.6,
+    "min_html_size": 200,
+    "compute_hash": false,
+    "seed": 42
+  }
+}

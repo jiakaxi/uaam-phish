@@ -1,20 +1,29 @@
 # @package _global_
-# 默认训练器配置
+# Trainer defaults aligned with thesis Sec. 4.6.3
 
 hardware:
   accelerator: auto
   devices: auto
-  precision: 32
+  precision: 16  # Sec. 4.6.3: mixed-precision (AMP)
   num_workers: 4
 
 train:
-  epochs: 50        # 修复: 从10改为50
-  lr: 1.0e-4        # 修复: 从1e-3改为1e-4 (0.0001)
-  bs: 64            # 修复: 从32改为64
+  epochs: 25        # Sec. 4.6.3: max epochs
+  lr: 1.0e-3        # Base LR for non-BERT parameter group
+  bs: 128           # Target batch size (use grad accumulation if resources limited)
   log_every: 50
   weight_decay: 1.0e-5
+  grad_accumulation: 1
 
 eval:
-  bs: 64
-  monitor: val_loss
-  patience: 5
+  bs: 128
+  monitor: val/auroc  # Sec. 4.6.3: validation AUROC drives early stopping
+  patience: 10
+
+# Trainer debug/test parameters (optional, can be overridden with +trainer.*)
+trainer:
+  fast_dev_run: false
+  limit_train_batches: null
+  limit_val_batches: null
+  limit_test_batches: null
+  overfit_batches: 0

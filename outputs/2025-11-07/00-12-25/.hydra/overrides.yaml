@@ -1,0 +1,2 @@
+- experiment=multimodal_baseline
+- trainer.fast_dev_run=true
