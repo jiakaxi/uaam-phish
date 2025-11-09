@@ -74,12 +74,22 @@ def train(cfg: DictConfig) -> float:
     # Callbacks (Sec. 4.6.3)
     monitor = cfg.eval.get("monitor", "val_loss")
     patience = cfg.eval.get("patience", 3)
+    min_delta = cfg.eval.get("min_delta", 0.0)
     mode = (
         "max" if any(metric in monitor for metric in ("f1", "auroc", "acc")) else "min"
     )
 
+    # Early stopping callback
+    early_stopping_kwargs = {
+        "monitor": monitor,
+        "mode": mode,
+        "patience": patience,
+    }
+    if min_delta > 0:
+        early_stopping_kwargs["min_delta"] = min_delta
+
     callbacks = [
-        EarlyStopping(monitor=monitor, mode=mode, patience=patience),
+        EarlyStopping(**early_stopping_kwargs),
         ModelCheckpoint(
             monitor=monitor,
             mode=mode,
@@ -177,6 +187,8 @@ def train(cfg: DictConfig) -> float:
     log.info("  - Monitor: %s", monitor)
     log.info("  - Mode: %s", mode)
     log.info("  - Patience: %s", patience)
+    if min_delta > 0:
+        log.info("  - Min delta: %s", min_delta)
     log.info("=" * 70 + "\n")
 
     trainer.fit(model, dm)

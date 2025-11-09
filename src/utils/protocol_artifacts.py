@@ -119,11 +119,12 @@ class ArtifactsWriter:
             "f1_macro": float(f1_score(df["y_true"], df["y_pred"], average="macro")),
         }
         try:
-            ece_value, ece_bins = compute_ece(
+            ece_value, ece_bins, low_sample_warning = compute_ece(
                 df["y_true"].to_numpy(), df["prob"].to_numpy()
             )
             metrics["ece"] = float(ece_value)
             metrics["ece_bins_used"] = int(ece_bins)
+            metrics["ece_low_sample_warning"] = bool(low_sample_warning)
         except Exception as exc:
             log.warning("Failed to compute ECE: %s", exc)
         return metrics
@@ -178,11 +179,11 @@ class ArtifactsWriter:
             return
 
         try:
-            ece_value, ece_bins = compute_ece(
+            ece_value, ece_bins, _ = compute_ece(
                 df["y_true"].to_numpy(), df["prob"].to_numpy()
             )
         except Exception:
-            ece_value, ece_bins = 0.0, 10
+            ece_value, ece_bins = 0.0, 15
 
         prob_true, prob_pred = calibration_curve(
             df["y_true"], df["prob"], n_bins=ece_bins, strategy="uniform"

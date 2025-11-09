@@ -122,26 +122,35 @@ class TestMetrics:
         y_true = np.array([1, 0, 1, 0, 1, 0, 1, 0, 1, 0] * 10)
         y_prob = np.array([0.9, 0.1, 0.8, 0.2, 0.7, 0.3, 0.6, 0.4, 0.5, 0.5] * 10)
 
-        ece_value, bins_used = compute_ece(y_true, y_prob, n_bins=None, pos_label=1)
+        ece_value, bins_used, low_sample_warning = compute_ece(
+            y_true, y_prob, n_bins=None, pos_label=1
+        )
 
         assert 0.0 <= ece_value <= 1.0
-        assert 3 <= bins_used <= 15
+        assert bins_used == 15
+        assert low_sample_warning is True  # N=100 < 150 triggers warning
 
-    def test_compute_ece_adaptive_bins(self):
-        """测试ECE自适应bins"""
-        # 小样本
-        y_true = np.array([1, 0, 1, 0, 1])
-        y_prob = np.array([0.9, 0.1, 0.8, 0.2, 0.7])
+    def test_compute_ece_fixed_bins_and_warning(self):
+        """测试ECE固定bins及低样本警告"""
+        # 小样本 => 触发警告
+        y_true_small = np.array([1, 0, 1, 0, 1])
+        y_prob_small = np.array([0.9, 0.1, 0.8, 0.2, 0.7])
 
-        _, bins_used = compute_ece(y_true, y_prob, n_bins=None)
-        assert bins_used == 3  # max(3, min(15, floor(sqrt(5)), 10)) = 3
+        _, bins_used_small, low_warning_small = compute_ece(
+            y_true_small, y_prob_small, n_bins=None
+        )
+        assert bins_used_small == 15
+        assert low_warning_small is True
 
-        # 大样本
-        y_true = np.array([1, 0] * 100)
-        y_prob = np.random.rand(200)
+        # 大样本 => 不触发警告
+        y_true_large = np.array([1, 0] * 200)
+        y_prob_large = np.random.rand(400)
 
-        _, bins_used = compute_ece(y_true, y_prob, n_bins=None)
-        assert bins_used == 10  # max(3, min(15, floor(sqrt(200)), 10)) = 10
+        _, bins_used_large, low_warning_large = compute_ece(
+            y_true_large, y_prob_large, n_bins=None
+        )
+        assert bins_used_large == 15
+        assert low_warning_large is False
 
     def test_compute_nll(self):
         """测试NLL计算"""

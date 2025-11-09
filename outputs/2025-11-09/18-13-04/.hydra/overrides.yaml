@@ -1,0 +1,3 @@
+- experiment=s0_iid_earlyconcat
+- run.seed=42
+- paths.output_dir=workspace/runs/s0_iid_earlyconcat/seed_42

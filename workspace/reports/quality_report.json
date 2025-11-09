@@ -1,0 +1,45 @@
+{
+  "splits": {
+    "iid/train.csv": {
+      "status": "warning",
+      "path": "workspace\\data\\splits\\iid\\train.csv",
+      "reason": "contains NaN"
+    },
+    "iid/val.csv": {
+      "status": "warning",
+      "path": "workspace\\data\\splits\\iid\\val.csv",
+      "reason": "contains NaN"
+    },
+    "iid/test.csv": {
+      "status": "warning",
+      "path": "workspace\\data\\splits\\iid\\test.csv",
+      "reason": "contains NaN"
+    },
+    "brandood/train.csv": {
+      "status": "passed",
+      "path": "workspace\\data\\splits\\brandood\\train.csv",
+      "rows": 3231
+    },
+    "brandood/val.csv": {
+      "status": "passed",
+      "path": "workspace\\data\\splits\\brandood\\val.csv",
+      "rows": 693
+    },
+    "brandood/test_id.csv": {
+      "status": "passed",
+      "path": "workspace\\data\\splits\\brandood\\test_id.csv",
+      "rows": 693
+    },
+    "brandood/test_ood.csv": {
+      "status": "passed",
+      "path": "workspace\\data\\splits\\brandood\\test_ood.csv",
+      "rows": 173
+    }
+  },
+  "corruption": {},
+  "runs": {
+    "status": "passed",
+    "total_runs": 0
+  },
+  "passed": false
+}

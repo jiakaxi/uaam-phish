@@ -4,13 +4,13 @@ Metrics computation utilities including ECE (Expected Calibration Error).
 
 from __future__ import annotations
 
-import math
 from typing import Optional, Tuple
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from torchmetrics import Accuracy, AUROC, F1Score, Metric
+from sklearn.metrics import roc_curve
 
 
 def compute_ece(
@@ -18,36 +18,38 @@ def compute_ece(
     y_prob: np.ndarray,
     n_bins: Optional[int] = None,
     pos_label: int = 1,
-) -> Tuple[float, int]:
+) -> Tuple[float, int, bool]:
     """
-    Compute Expected Calibration Error with adaptive binning.
+    Compute Expected Calibration Error using fixed 15-bin partition.
+
+    The first bin is left-closed to ensure probabilities equal to 0.0 are not skipped.
 
     Args:
-        y_true: True labels (0 or 1)
-        y_prob: Predicted probabilities for positive class
-        n_bins: Number of bins. If None, use adaptive: max(3, min(15, floor(sqrt(N)), 10))
-        pos_label: Positive class label (default=1)
+        y_true: True labels (0 or 1).
+        y_prob: Predicted probabilities for the positive class.
+        n_bins: Number of bins (ignored; fixed to 15 to stabilize comparisons).
+        pos_label: Positive class label (default=1).
 
     Returns:
-        ece_value, bins_used
+        Tuple of (ece_value, bins_used, low_sample_warning)
     """
     y_true = np.asarray(y_true)
     y_prob = np.asarray(y_prob)
 
-    # Adaptive bins
-    if n_bins is None:
-        N = len(y_true)
-        n_bins = max(3, min(15, int(math.floor(math.sqrt(N))), 10))
+    N = len(y_true)
+    low_sample_warning = N < 150
+    n_bins = 15
 
-    # Create bins
     bin_boundaries = np.linspace(0, 1, n_bins + 1)
     bin_lowers = bin_boundaries[:-1]
     bin_uppers = bin_boundaries[1:]
 
     ece = 0.0
-    for bin_lower, bin_upper in zip(bin_lowers, bin_uppers):
-        # Find samples in this bin
-        in_bin = (y_prob > bin_lower) & (y_prob <= bin_upper)
+    for idx, (bin_lower, bin_upper) in enumerate(zip(bin_lowers, bin_uppers)):
+        if idx == 0:
+            in_bin = (y_prob >= bin_lower) & (y_prob <= bin_upper)
+        else:
+            in_bin = (y_prob > bin_lower) & (y_prob <= bin_upper)
         prop_in_bin = in_bin.mean()
 
         if prop_in_bin > 0:
@@ -55,7 +57,7 @@ def compute_ece(
             avg_confidence_in_bin = y_prob[in_bin].mean()
             ece += np.abs(avg_confidence_in_bin - accuracy_in_bin) * prop_in_bin
 
-    return float(ece), n_bins
+    return float(ece), n_bins, low_sample_warning
 
 
 def compute_nll(logits: torch.Tensor, labels: torch.Tensor) -> float:
@@ -106,7 +108,9 @@ class ECEMetric(Metric):
         """Compute ECE."""
         y_true = torch.cat(self.y_true).cpu().numpy()
         y_prob = torch.cat(self.y_prob).cpu().numpy()
-        ece_value, bins_used = compute_ece(y_true, y_prob, self.n_bins, self.pos_label)
+        ece_value, bins_used, _ = compute_ece(
+            y_true, y_prob, self.n_bins, self.pos_label
+        )
         return torch.tensor(ece_value), bins_used
 
 
@@ -142,3 +146,25 @@ def get_step_metrics(
             sync_on_compute=sync_dist,
         ),
     }
+
+
+def compute_fpr_at_tpr95(
+    y_true: np.ndarray, y_prob: np.ndarray
+) -> Tuple[float, float, bool]:
+    """
+    Compute FPR when TPR reaches 95% using full ROC curve (drop_intermediate=False).
+
+    Returns:
+        fpr_at_95, threshold_at_95, reached_flag
+    """
+    fpr, tpr, thresholds = roc_curve(y_true, y_prob, drop_intermediate=False)
+    if not np.all(np.diff(tpr) >= 0):
+        raise AssertionError("TPR should be non-decreasing")
+
+    if tpr.max() < 0.95:
+        idx = np.argmax(tpr)
+        return float(fpr[idx]), float(thresholds[idx]), False
+
+    fpr_95 = np.interp(0.95, tpr, fpr)
+    thr_95 = np.interp(0.95, tpr, thresholds)
+    return float(fpr_95), float(thr_95), True

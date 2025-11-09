@@ -241,7 +241,7 @@ class HtmlOnlyModule(pl.LightningModule):
         # Convert to float32 first to avoid BFloat16 numpy conversion issues
         y_true_np = all_labels.cpu().float().numpy()
         y_prob_np = all_probs.cpu().float().numpy()
-        ece_value, bins_used = compute_ece(
+        ece_value, bins_used, low_sample_warning = compute_ece(
             y_true_np, y_prob_np, n_bins=None, pos_label=1
         )
 
@@ -250,6 +250,12 @@ class HtmlOnlyModule(pl.LightningModule):
         )
         self.log("val/nll", nll, prog_bar=False, sync_dist=sync_dist)
         self.log("val/ece", ece_value, prog_bar=False, sync_dist=sync_dist)
+        self.log(
+            "val/ece_low_sample_warning",
+            float(low_sample_warning),
+            prog_bar=False,
+            sync_dist=sync_dist,
+        )
 
         self.validation_step_outputs.clear()
 
@@ -271,7 +277,7 @@ class HtmlOnlyModule(pl.LightningModule):
         # Convert to float32 first to avoid BFloat16 numpy conversion issues
         y_true_np = all_labels.cpu().float().numpy()
         y_prob_np = all_probs.cpu().float().numpy()
-        ece_value, bins_used = compute_ece(
+        ece_value, bins_used, low_sample_warning = compute_ece(
             y_true_np, y_prob_np, n_bins=None, pos_label=1
         )
 
@@ -281,12 +287,20 @@ class HtmlOnlyModule(pl.LightningModule):
         self.log("test/nll", nll, prog_bar=False, sync_dist=sync_dist)
         self.log("test/ece", ece_value, prog_bar=False, sync_dist=sync_dist)
         self.log("test/ece_bins", float(bins_used), prog_bar=False, sync_dist=sync_dist)
+        self.log(
+            "test/ece_low_sample_warning",
+            float(low_sample_warning),
+            prog_bar=False,
+            sync_dist=sync_dist,
+        )
 
         # Log metrics summary
         log.info("=" * 70)
         log.info("[HTML-only] Test Epoch Metrics Summary:")
         log.info(f"  NLL:      {nll:.4f}")
-        log.info(f"  ECE:      {ece_value:.4f} (bins={bins_used})")
+        log.info(
+            f"  ECE:      {ece_value:.4f} (bins={bins_used}, low_sample={low_sample_warning})"
+        )
 
         # Get step metrics from test_metrics
         for name, metric in self.test_metrics.items():

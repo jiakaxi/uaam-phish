@@ -1,0 +1,72 @@
+# @package _global_
+
+defaults:
+  - override /model: multimodal_baseline
+  - override /trainer: default
+  - override /logger: wandb
+
+run:
+  name: s0_brandood_earlyconcat
+  seed: 42
+  tags: ["s0", "brandood", "earlyconcat"]
+  notes: "S0 Brand-OOD baseline (EarlyConcat)"
+
+protocol: brand_ood
+
+system:
+  _target_: src.systems.multimodal_baseline.MultimodalBaselineSystem
+  _recursive_: false
+  url_vocab_size: ${model.url_vocab_size}
+  url_embed_dim: ${model.url_embed_dim}
+  url_hidden_dim: ${model.url_hidden_dim}
+  url_num_layers: ${model.url_num_layers}
+  url_max_len: ${model.url_max_len}
+  html_model_name: ${model.html_model_name}
+  html_hidden_dim: ${model.html_hidden_dim}
+  html_projection_dim: ${model.html_projection_dim}
+  html_freeze_bert: ${model.html_freeze_bert}
+  visual_model_name: ${model.visual_model_name}
+  visual_pretrained: ${model.visual_pretrained}
+  visual_projection_dim: ${model.visual_projection_dim}
+  visual_freeze_backbone: ${model.visual_freeze_backbone}
+  learning_rate: 3.0e-4
+  weight_decay: 1.0e-4
+  dropout: 0.3
+  pos_weight: null
+
+datamodule:
+  _target_: src.data.multimodal_datamodule.MultimodalDataModule
+  _recursive_: false
+  train_csv: workspace/data/splits/brandood/train.csv
+  val_csv: workspace/data/splits/brandood/val.csv
+  test_csv: workspace/data/splits/brandood/test_id.csv
+  image_dir: data/processed/screenshots
+  corrupt_root: workspace/data/corrupt
+  batch_size: 64
+  num_workers: 0  # Windows优化：单进程避免多进程开销
+  pin_memory: true
+  persistent_workers: false
+  use_augmentation: false
+  url_max_len: 200
+  url_vocab_size: 128
+  html_max_len: 256
+
+paths:
+  output_dir: workspace/runs/${run.name}/seed_${run.seed}
+
+hardware:
+  accelerator: gpu
+  devices: 1
+  precision: 16-mixed
+
+train:
+  epochs: 20
+  lr: 3.0e-4
+  bs: 64
+  weight_decay: 1.0e-4
+  grad_accumulation: 2
+  log_every: 25
+
+eval:
+  monitor: val/loss
+  patience: 5

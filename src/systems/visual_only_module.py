@@ -245,7 +245,7 @@ class VisualOnlyModule(pl.LightningModule):
         # Convert to float32 first to avoid BFloat16 numpy conversion issues
         y_true_np = all_labels.cpu().float().numpy()
         y_prob_np = all_probs.cpu().float().numpy()
-        ece_value, bins_used = compute_ece(
+        ece_value, bins_used, low_sample_warning = compute_ece(
             y_true_np, y_prob_np, n_bins=None, pos_label=1
         )
 
@@ -254,6 +254,12 @@ class VisualOnlyModule(pl.LightningModule):
         )
         self.log("val/nll", nll, prog_bar=False, sync_dist=sync_dist)
         self.log("val/ece", ece_value, prog_bar=False, sync_dist=sync_dist)
+        self.log(
+            "val/ece_low_sample_warning",
+            float(low_sample_warning),
+            prog_bar=False,
+            sync_dist=sync_dist,
+        )
 
         self.validation_step_outputs.clear()
 
@@ -275,7 +281,7 @@ class VisualOnlyModule(pl.LightningModule):
         # Convert to float32 first to avoid BFloat16 numpy conversion issues
         y_true_np = all_labels.cpu().float().numpy()
         y_prob_np = all_probs.cpu().float().numpy()
-        ece_value, bins_used = compute_ece(
+        ece_value, bins_used, low_sample_warning = compute_ece(
             y_true_np, y_prob_np, n_bins=None, pos_label=1
         )
 
@@ -285,6 +291,12 @@ class VisualOnlyModule(pl.LightningModule):
         self.log("test/nll", nll, prog_bar=False, sync_dist=sync_dist)
         self.log("test/ece", ece_value, prog_bar=False, sync_dist=sync_dist)
         self.log("test/ece_bins", float(bins_used), prog_bar=False, sync_dist=sync_dist)
+        self.log(
+            "test/ece_low_sample_warning",
+            float(low_sample_warning),
+            prog_bar=False,
+            sync_dist=sync_dist,
+        )
 
         # Compute final test metrics for sanity check
         final_acc = (all_probs > 0.5).long().eq(all_labels.long()).float().mean().item()

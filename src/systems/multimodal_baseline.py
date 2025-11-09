@@ -68,6 +68,15 @@ class MultimodalBaselineSystem(pl.LightningModule):
         self.save_hyperparameters(ignore=["cfg"])
         self.cfg = cfg
 
+        # Enable TF32 for faster training on Ampere+ GPUs
+        if torch.cuda.is_available():
+            try:
+                torch.backends.cuda.matmul.allow_tf32 = True
+                torch.backends.cudnn.allow_tf32 = True
+                torch.set_float32_matmul_precision("high")
+            except Exception:
+                pass
+
         # Encoders (Sec. 4.6.1)
         self.url_encoder = URLEncoder(
             vocab_size=url_vocab_size,
@@ -102,30 +111,31 @@ class MultimodalBaselineSystem(pl.LightningModule):
         )
 
         # Loss (Sec. 4.6.3)
-        if pos_weight is not None:
-            pos_weight_tensor = torch.tensor([pos_weight])
-            self.loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight_tensor)
-        else:
-            self.loss_fn = torch.nn.BCEWithLogitsLoss()
+        self._pos_weight = float(pos_weight) if pos_weight is not None else None
+        self.loss_fn = torch.nn.BCEWithLogitsLoss()
 
         # Metrics (AUROC primary, plus accuracy/F1)
         self.train_acc = Accuracy(task="binary")
         self.train_auroc = AUROC(task="binary")
-        self.train_f1 = F1Score(task="binary", average="macro")
+        self.train_f1 = F1Score(task="binary")
 
         self.val_acc = Accuracy(task="binary")
         self.val_auroc = AUROC(task="binary")
-        self.val_f1 = F1Score(task="binary", average="macro")
+        self.val_f1 = F1Score(task="binary")
 
         self.test_acc = Accuracy(task="binary")
         self.test_auroc = AUROC(task="binary")
-        self.test_f1 = F1Score(task="binary", average="macro")
+        self.test_f1 = F1Score(task="binary")
 
         # Artifact handling (Sec. 4.6.4)
         self.artifacts_dir: Optional[Path] = None
         self.split_metadata: Dict[str, Any] = {}
         self.artifacts_writer: Optional[ArtifactsWriter] = None
         self._preds: Dict[str, list] = {"val": [], "test": []}
+
+        # Collect outputs for epoch-end metric computation (performance optimization)
+        self.train_step_outputs: list = []
+        self.val_step_outputs: list = []
 
     # ------------------------------------------------------------------ #
     # Utility setters                                                    #
@@ -152,39 +162,60 @@ class MultimodalBaselineSystem(pl.LightningModule):
         logits = self.fusion.classify(z_fused)
         return logits
 
+    def _compute_loss(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        if self._pos_weight is None:
+            return self.loss_fn(logits, labels)
+        pos_weight_tensor = torch.tensor(
+            [self._pos_weight], dtype=logits.dtype, device=logits.device
+        )
+        loss_fn = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight_tensor)
+        return loss_fn(logits, labels)
+
     def _shared_step(
         self, batch: Dict[str, Any], stage: str
     ) -> Dict[str, torch.Tensor]:
         logits = self(batch)
-        labels = batch["label"].float().unsqueeze(1)
-        loss = self.loss_fn(logits, labels)
+        labels = batch["label"].float().unsqueeze(1).to(logits.device)
+        labels_int = labels.view(-1).long()
+        loss = self._compute_loss(logits, labels)
 
-        probs = torch.sigmoid(logits).view(-1)
+        probs = torch.sigmoid(logits)
         preds = (probs > 0.5).long()
-        labels_int = labels.long().view(-1)
+        preds_flat = preds.view(-1)
 
-        metrics_map = {
-            "train": (self.train_acc, self.train_auroc, self.train_f1),
-            "val": (self.val_acc, self.val_auroc, self.val_f1),
-            "test": (self.test_acc, self.test_auroc, self.test_f1),
-        }
-        acc_metric, auroc_metric, f1_metric = metrics_map[stage]
-        acc_metric(preds, labels_int)
-        auroc_metric(probs, labels_int)
-        f1_metric(preds, labels_int)
+        # For test stage, compute metrics immediately (needed for final evaluation)
+        if stage == "test":
+            metrics_map = {
+                "test": (self.test_acc, self.test_auroc, self.test_f1),
+            }
+            acc_metric, auroc_metric, f1_metric = metrics_map[stage]
+            acc_metric(preds_flat, labels_int)
+            auroc_metric(probs.view(-1), labels_int)
+            f1_metric(preds_flat, labels_int)
 
-        self.log_dict(
-            {
-                f"{stage}/loss": loss,
-                f"{stage}/acc": acc_metric,
-                f"{stage}/auroc": auroc_metric,
-                f"{stage}/f1": f1_metric,
-            },
+            self.log_dict(
+                {
+                    f"{stage}/loss": loss,
+                    f"{stage}/acc": acc_metric,
+                    f"{stage}/auroc": auroc_metric,
+                    f"{stage}/f1": f1_metric,
+                },
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+            )
+
+        # Log loss immediately (needed for training)
+        self.log(
+            f"{stage}/loss",
+            loss,
             prog_bar=stage != "train",
-            on_step=False,
+            on_step=(stage == "train"),
             on_epoch=True,
+            sync_dist=False,
         )
 
+        # Cache predictions for artifact generation
         cache = self._preds.get(stage)
         if cache is not None:
             cache.append(
@@ -198,16 +229,54 @@ class MultimodalBaselineSystem(pl.LightningModule):
 
         return {
             "loss": loss,
-            "probs": probs.detach(),
-            "labels": labels_int.detach(),
+            "probs": probs.detach().cpu(),
+            "labels": labels_int.detach().cpu(),
+            "preds": preds_flat.detach().cpu(),
         }
 
     def training_step(self, batch: Dict[str, Any], batch_idx: int):
         output = self._shared_step(batch, "train")
+        # Collect outputs for epoch-end metric computation
+        self.train_step_outputs.append(output)
         return output["loss"]
 
+    def on_train_epoch_end(self) -> None:
+        """Compute training metrics at epoch end for performance optimization."""
+        if not self.train_step_outputs:
+            return
+
+        # Concatenate all outputs
+        all_probs = torch.cat(
+            [out["probs"].view(-1) for out in self.train_step_outputs]
+        )
+        all_labels = torch.cat([out["labels"] for out in self.train_step_outputs])
+        all_preds = torch.cat([out["preds"] for out in self.train_step_outputs])
+
+        # Compute metrics
+        self.train_acc(all_preds, all_labels)
+        self.train_auroc(all_probs, all_labels)
+        self.train_f1(all_preds, all_labels)
+
+        # Log metrics
+        self.log_dict(
+            {
+                "train/acc": self.train_acc,
+                "train/auroc": self.train_auroc,
+                "train/f1": self.train_f1,
+            },
+            on_step=False,
+            on_epoch=True,
+            sync_dist=False,
+        )
+
+        # Clear outputs
+        self.train_step_outputs.clear()
+
     def validation_step(self, batch: Dict[str, Any], batch_idx: int):
-        return self._shared_step(batch, "val")
+        output = self._shared_step(batch, "val")
+        # Collect outputs for epoch-end metric computation
+        self.val_step_outputs.append(output)
+        return output
 
     def test_step(self, batch: Dict[str, Any], batch_idx: int):
         output = self._shared_step(batch, "test")
@@ -234,6 +303,37 @@ class MultimodalBaselineSystem(pl.LightningModule):
         return self.artifacts_writer
 
     def on_validation_epoch_end(self) -> None:
+        """Compute validation metrics at epoch end and save artifacts."""
+        if self.val_step_outputs:
+            # Concatenate all outputs
+            all_probs = torch.cat(
+                [out["probs"].view(-1) for out in self.val_step_outputs]
+            )
+            all_labels = torch.cat([out["labels"] for out in self.val_step_outputs])
+            all_preds = torch.cat([out["preds"] for out in self.val_step_outputs])
+
+            # Compute metrics
+            self.val_acc(all_preds, all_labels)
+            self.val_auroc(all_probs, all_labels)
+            self.val_f1(all_preds, all_labels)
+
+            # Log metrics
+            self.log_dict(
+                {
+                    "val/acc": self.val_acc,
+                    "val/auroc": self.val_auroc,
+                    "val/f1": self.val_f1,
+                },
+                prog_bar=True,
+                on_step=False,
+                on_epoch=True,
+                sync_dist=False,
+            )
+
+            # Clear outputs
+            self.val_step_outputs.clear()
+
+        # Save artifacts
         if self._preds["val"]:
             writer = self._get_artifacts_writer()
             writer.save_stage_artifacts(self._preds["val"], stage="val")
@@ -274,20 +374,46 @@ class MultimodalBaselineSystem(pl.LightningModule):
             param_groups, weight_decay=self.hparams.weight_decay
         )
 
-        t_max = 25
-        if self.cfg and hasattr(self.cfg, "train"):
-            t_max = getattr(self.cfg.train, "epochs", t_max)
+        # Use ReduceLROnPlateau scheduler if configured, otherwise use CosineAnnealingLR
+        if (
+            self.cfg
+            and hasattr(self.cfg, "eval")
+            and hasattr(self.cfg.eval, "reduce_lr_on_plateau")
+        ):
+            rlr_config = self.cfg.eval.reduce_lr_on_plateau
+            scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer,
+                mode=rlr_config.get("mode", "min"),
+                factor=rlr_config.get("factor", 0.5),
+                patience=rlr_config.get("patience", 2),
+                min_lr=rlr_config.get("min_lr", 1e-6),
+                verbose=True,
+            )
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "monitor": rlr_config.get("monitor", "val/loss"),
+                    "interval": "epoch",
+                    "frequency": 1,
+                },
+            }
+        else:
+            # Fallback to CosineAnnealingLR if not configured
+            t_max = 20
+            if self.cfg and hasattr(self.cfg, "train"):
+                t_max = getattr(self.cfg.train, "epochs", t_max)
 
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer,
-            T_max=t_max,
-            eta_min=1e-6,
-        )
+            scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+                optimizer,
+                T_max=t_max,
+                eta_min=1e-6,
+            )
 
-        return {
-            "optimizer": optimizer,
-            "lr_scheduler": {
-                "scheduler": scheduler,
-                "interval": "epoch",
-            },
-        }
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": "epoch",
+                },
+            }

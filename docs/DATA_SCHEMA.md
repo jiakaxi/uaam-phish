@@ -1,223 +1,107 @@
-# 数据Schema规范
+# Multimodal Data Schema (S0 Baseline)
 
-> 统一的数据格式约定,确保训练、验证、测试集的一致性
+> 统一数据格式可以确保 URL / HTML / 图像三模态 DataModule 在所有实验（IID、Brand-OOD、Corruption）中行为一致。本文件约定 **必需列**、**可选列**、**Corruption 扩展列** 以及验证建议。
 
-## 📋 Schema定义
-
-### 必需列
-
-所有CSV文件必须包含以下列：
+## 1. 必需列（MultimodalDataModule）
 
 | 列名 | 类型 | 约束 | 说明 |
 |------|------|------|------|
-| `url_text` | string | 非空 | URL文本,用于模型输入 |
-| `label` | int | {0, 1} | 标签: 0=良性, 1=钓鱼 |
+| `id` | string / int | 唯一 | 样本 ID，贯穿 splits / artifacts |
+| `label` | int | {0,1} | 0=benign，1=phishing |
+| `url_text` | string | 非空 | URL 文本（URL encoder 输入） |
+| `html_path` | string | 可相对/绝对 | HTML 原文路径，允许为空字符串 |
+| `img_path` | string | 可相对/绝对 | 截图路径，允许为空字符串 |
+| `split` | string | train/val/test | 仅当 `split_protocol=presplit` 且使用 `master_csv` 时必备 |
 
-### 可选列
+> S0 Hydra 配置推荐直接提供 `train_csv/val_csv/test_csv`，因此 `split` 列并非强制；但 Master Data 仍需提供用于回溯。
 
-以下列为可选,可用于数据分析和追踪：
+## 2. 可选列（Brand-OOD + 日志）
 
 | 列名 | 类型 | 说明 |
 |------|------|------|
-| `id` | string/int | 样本唯一标识符 |
-| `domain` | string | 域名 |
-| `source` | string | 数据来源 |
-| `split` | string | 数据集划分 (train/val/test) |
-| `timestamp` | datetime | 数据收集时间 |
+| `brand` | string | 品牌（需归一化：strip + lower） |
+| `timestamp` | ISO string | 时间戳（Brand-OOD 三重门禁） |
+| `domain` | string | 原始域名 |
+| `etld_plus_one` | string | eTLD+1（若缺失，分割脚本会调用 `tldextract` 自动生成） |
+| `source` | string | 数据来源（dataset 根路径/采集渠道） |
+| `url_text_corrupt` | string | URL corruption 结果（可选） |
+| `html_path_corrupt` | string | HTML corruption 路径（可选） |
 
-### 数据约束
+## 3. Corruption 扩展列（必需）
 
-1. **样本数量**: 每个CSV文件必须至少包含 1 个样本
-2. **空值处理**: `url_text` 和 `label` 不允许为空
-3. **标签值**: `label` 只允许包含 0 或 1
-4. **数据类型**:
-   - `url_text` 必须为字符串类型 (object)
-   - `label` 必须为整数类型 (int)
+用于 `workspace/data/corrupt/**` 产物，以及 DataLoader 优先读取逻辑：
 
-## 🗂️ 文件结构
+| 列名 | 类型 | 说明 |
+|------|------|------|
+| `img_path_corrupt` | string | **优先读取**的 corruption 截图；若为相对路径，则默认相对于 `workspace/data/corrupt` |
+| `img_sha256_corrupt` | string | corruption 截图 SHA256 校验 |
+
+> 其余模态（URL / HTML）腐化列按照可选字段处理。若缺失，则 DataLoader 自动回退到原始 `img_path` / `url_text` / `html_path`。
+
+## 4. 目录约定
 
 ```
-data/processed/
-├── train.csv    # 训练集
-├── val.csv      # 验证集
-└── test.csv     # 测试集
+workspace/
+  data/
+    splits/
+      iid/{train,val,test}.csv
+      brandood/{train,val,test}.csv
+    corrupt/
+      url/**.csv
+      html/**.csv
+      img/shot/<sample_id>.jpg     # img_path_corrupt 相对该目录
 ```
 
-## 📝 示例
+* 训练/评估脚本默认读取 `workspace/data/**`；原始 master 数据保持在 `data/processed/master_v2.csv`，只读。
+* `MultimodalDataModule` 新增 `train_csv/val_csv/test_csv` 参数。配置示例：
+  ```yaml
+  datamodule:
+    _target_: src.data.multimodal_datamodule.MultimodalDataModule
+    train_csv: workspace/data/splits/iid/train.csv
+    val_csv: workspace/data/splits/iid/val.csv
+    test_csv: workspace/data/splits/iid/test.csv
+    image_dir: data/processed/screenshots
+    corrupt_root: workspace/data/corrupt
+    batch_size: 64
+    num_workers: 4
+    persistent_workers: false
+  ```
 
-### 最小schema示例
+## 5. 示例（最小 + 扩展）
 
 ```csv
-url_text,label
-http://example.com/login,0
-http://paypal.secure-verify.cn/account,1
-https://www.google.com,0
-http://apple-id-unlock.tk/verify,1
+id,label,url_text,html_path,img_path,brand,timestamp,etld_plus_one,source,img_path_corrupt,img_sha256_corrupt
+iid_train_0001,0,http://example.com/login,data/raw/html/0001.html,data/raw/img/0001.png,example,2024-05-01T10:00:00Z,example.com,benign_dataset,,
+iid_train_0002,1,http://paypal-secure.cn/update,data/raw/html/0002.html,data/raw/img/0002.png,paypal,2024-05-01T10:05:00Z,paypal-secure.cn,phish_dataset,,
+iid_test_0100,1,http://apple.id-confirm.ru/index,data/raw/html/0100.html,data/raw/img/0100.png,apple,2024-05-01T11:00:00Z,apple.id-confirm.ru,phish_dataset,img/shot/iid_test_0100.jpg,6a47...
 ```
 
-### 完整schema示例
+* IID/Brand-OOD Split CSV 必须包含 **表 1 + 表 2** 列。
+* Corruption CSV 在此基础上新增表 3 列，并可追加 `url_text_corrupt/html_path_corrupt`。
 
-```csv
-url_text,label,id,domain,source,split,timestamp
-http://example.com/login,0,1,example.com,benign_dataset,train,2025-01-15
-http://paypal.secure-verify.cn/account,1,2,paypal.secure-verify.cn,phish_dataset,train,2025-01-16
-https://www.google.com,0,3,google.com,benign_dataset,val,2025-01-17
-http://apple-id-unlock.tk/verify,1,4,apple-id-unlock.tk,phish_dataset,test,2025-01-18
-```
+## 6. 校验建议
 
-## ✅ 验证工具
-
-### 自动验证
-
-使用 `make validate-data` 命令验证所有CSV文件：
-
-```bash
-make validate-data
-```
-
-输出示例：
-
-```
-======================================================================
-数据Schema验证
-======================================================================
-
-[Schema规范]
-   必需列: ['url_text', 'label']
-   可选列: ['id', 'domain', 'source', 'split', 'timestamp']
-   标签值: {0, 1}
-   样本数: > 0
-
-[OK] train.csv
-   样本数: 467
-   必需列: ['url_text', 'label'] [通过]
-   标签分布: 良性=222 (47.5%), 钓鱼=245 (52.5%)
-   url_text 类型: object
-   label 类型: int64
-
-[OK] val.csv
-   样本数: 101
-   必需列: ['url_text', 'label'] [通过]
-   标签分布: 良性=47 (46.5%), 钓鱼=54 (53.5%)
-   url_text 类型: object
-   label 类型: int64
-
-[OK] test.csv
-   样本数: 101
-   必需列: ['url_text', 'label'] [通过]
-   标签分布: 良性=48 (47.5%), 钓鱼=53 (52.5%)
-   url_text 类型: object
-   label 类型: int64
-
-======================================================================
-[SUCCESS] 所有文件通过验证!
-======================================================================
-```
-
-### 修复数据问题
-
-如果验证失败(如存在空值),使用修复脚本：
-
-```bash
-python scripts/fix_data_schema.py
-```
-
-这会：
-- 删除 `url_text` 为空的行
-- 确保 `label` 为整数类型
-- 保存修复后的文件
-
-## 🔧 常见问题
-
-### Q1: 如何添加可选列？
-
-直接在CSV中添加即可,不影响验证：
-
-```python
-import pandas as pd
-
-df = pd.read_csv('data/processed/train.csv')
-df['domain'] = df['url_text'].apply(lambda x: extract_domain(x))
-df.to_csv('data/processed/train.csv', index=False)
-```
-
-### Q2: 标签分布不均衡怎么办？
-
-数据集允许不平衡,但建议：
-- 训练集: 尽量保持 40%-60% 的钓鱼样本比例
-- 验证/测试集: 与真实场景分布接近
-
-在配置文件中使用 `pos_weight` 参数处理不平衡：
-
-```yaml
-# configs/train.yaml
-train:
-  pos_weight: 2.0  # 如果钓鱼样本较少,增加权重
-```
-
-### Q3: 如何生成符合schema的数据？
-
-使用 `scripts/build_master_and_splits.py`:
-
-```bash
-python scripts/build_master_and_splits.py \
-  --benign data/raw/dataset \
-  --phish data/raw/fish_dataset \
-  --outdir data/processed \
-  --train_frac 0.7 \
-  --val_frac 0.15 \
-  --test_frac 0.15
-```
-
-或使用 DVC:
-
-```bash
-dvc repro
-```
-
-### Q4: 验证报错怎么办？
-
-**错误**: `[ERROR] 文件不存在`
-- **解决**: 运行 `dvc repro` 生成数据
-
-**错误**: `[ERROR] 缺少必需列`
-- **解决**: 检查CSV文件,确保包含 `url_text` 和 `label` 列
-
-**错误**: `[ERROR] label 包含无效值`
-- **解决**: 标签必须是 0 或 1,检查数据预处理逻辑
-
-**警告**: `[WARN] url_text 列包含空值`
-- **解决**: 运行 `python scripts/fix_data_schema.py` 自动修复
-
-## 🎯 最佳实践
-
-1. **数据预处理后立即验证**
+1. **列名检查**：
    ```bash
-   dvc repro
+   python tools/split_iid.py --check-only --in data/processed/master_v2.csv
+   ```
+2. **Schema 验证**（保留原有 make 目标）：
+   ```bash
    make validate-data
    ```
+3. **Corruption 校验**：
+   * 确认 `img_path_corrupt` 文件存在且 SHA256 匹配。
+   * DataLoader 会在日志中输出第一次 fallback（若 `img_path_corrupt` 缺失）。
 
-2. **训练前验证**
-   ```bash
-   make validate-data && make train
-   ```
+## 7. 常见问题
 
-3. **CI/CD集成**
-   在 `.github/workflows/ci.yml` 中添加：
-   ```yaml
-   - name: Validate data schema
-     run: make validate-data
-   ```
-
-4. **定期检查**
-   数据更新后重新验证,确保一致性
-
-## 📚 相关文档
-
-- [数据预处理](DATA_README.md) - 数据收集和预处理流程
-- [快速开始](../QUICKSTART.md) - 项目快速设置
-- [实验管理](EXPERIMENTS.md) - 实验跟踪和对比
+| 问题 | 解决方案 |
+|------|----------|
+| 缺少 `etld_plus_one` | 运行 `tools/split_iid.py` / `split_brandood.py` 会自动生成 |
+| `img_path_corrupt` 为空 | DataModule 自动回退到 `img_path`，但质量门禁会报告缺失 |
+| Brand-OOD 门禁失败 | 确保 `brand`、`timestamp`、`etld_plus_one`、`source` 均在 CSV 中 |
+| ReduceLROnPlateau 没有监控数据 | 确认 `val/loss` 在 Lightning 日志中存在 |
 
 ---
 
-**问题反馈**: 如果发现schema相关问题,请提交 Issue 或查看项目文档。
+如需扩展 schema（例如新增语言、可疑标签等），请在本文件补充列定义并同步更新 `tools/*` 分割脚本与 `src/data/multimodal_datamodule.py`。

@@ -200,7 +200,7 @@ class UrlOnlyModule(pl.LightningModule):
         # ECE with adaptive bins
         y_true_np = all_labels.cpu().numpy()
         y_prob_np = all_probs[:, 1].cpu().numpy()  # Probability of positive class
-        ece_value, bins_used = compute_ece(
+        ece_value, bins_used, low_sample_warning = compute_ece(
             y_true_np, y_prob_np, n_bins=None, pos_label=1
         )
 
@@ -210,6 +210,12 @@ class UrlOnlyModule(pl.LightningModule):
         )
         self.log("val_nll", nll, prog_bar=False, sync_dist=sync_dist)
         self.log("val_ece", ece_value, prog_bar=False, sync_dist=sync_dist)
+        self.log(
+            "val_ece_low_sample_warning",
+            float(low_sample_warning),
+            prog_bar=False,
+            sync_dist=sync_dist,
+        )
 
         # Clear outputs
         self.validation_step_outputs.clear()
@@ -231,7 +237,7 @@ class UrlOnlyModule(pl.LightningModule):
         # ECE with adaptive bins
         y_true_np = all_labels.cpu().numpy()
         y_prob_np = all_probs[:, 1].cpu().numpy()  # Probability of positive class
-        ece_value, bins_used = compute_ece(
+        ece_value, bins_used, low_sample_warning = compute_ece(
             y_true_np, y_prob_np, n_bins=None, pos_label=1
         )
 
@@ -242,12 +248,20 @@ class UrlOnlyModule(pl.LightningModule):
         self.log("test_nll", nll, prog_bar=False, sync_dist=sync_dist)
         self.log("test_ece", ece_value, prog_bar=False, sync_dist=sync_dist)
         self.log("test_ece_bins", float(bins_used), prog_bar=False, sync_dist=sync_dist)
+        self.log(
+            "test_ece_low_sample_warning",
+            float(low_sample_warning),
+            prog_bar=False,
+            sync_dist=sync_dist,
+        )
 
         # Log metrics summary
         log.info("=" * 70)
         log.info("[URL-only] Test Epoch Metrics Summary:")
         log.info(f"  NLL:      {nll:.4f}")
-        log.info(f"  ECE:      {ece_value:.4f} (bins={bins_used})")
+        log.info(
+            f"  ECE:      {ece_value:.4f} (bins={bins_used}, low_sample={low_sample_warning})"
+        )
 
         # Get step metrics from test_metrics
         for name, metric in self.test_metrics.items():
