@@ -22,6 +22,19 @@ lightning_logs/
 experiments/
 *.log
 
+# Outputs and artifacts
+outputs/
+lightning_logs_backup_*/
+.cursor/
+.cursor/**
+.cursor/plans/
+
+# Large workspace data caches and generated corrupt data
+workspace/data/preprocessed/
+workspace/data/corrupt/
+workspace/data/splits/
+workspace/reports/
+
 # System / IDE
 .vscode/
 .idea/

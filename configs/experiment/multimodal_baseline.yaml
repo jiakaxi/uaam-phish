@@ -41,7 +41,7 @@ datamodule:
   split_protocol: "presplit"  # Sec. 4.3.4 默认遵循提供的 split 列
   use_presplit: true
   batch_size: 128  # Sec. 4.6.3 目标 batch size（如显存不足可调 accumulate_grad_batches）
-  num_workers: 4
+  num_workers: 0  # Windows优化：单进程避免多进程开销
   pin_memory: true
   use_augmentation: false
   url_max_len: 200

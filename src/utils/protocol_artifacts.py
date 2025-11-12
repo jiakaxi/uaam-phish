@@ -8,6 +8,11 @@ import json
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
+# Set non-interactive backend to avoid Tkinter thread conflicts
+import matplotlib
+
+matplotlib.use("Agg")  # Use non-interactive backend
+
 import torch
 import pandas as pd
 import matplotlib.pyplot as plt

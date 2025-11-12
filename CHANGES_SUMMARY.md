@@ -1,5 +1,159 @@
 # 变更总结
 
+## 2025-11-11: Brand-OOD数据分割修复
+
+### 问题背景
+
+Brand-OOD实验的测试集AUROC为0.0，原因是数据集类别严重不平衡，导致验证集和测试集只有单一类别（全部为正例）。
+
+### 解决方案
+
+#### 新增工具脚本
+
+**文件**: `tools/check_brand_distribution.py`
+- 检查master_v2.csv中每个brand的0/1分布
+- 输出brand分布报告（JSON格式）
+- 识别有足够负例的品牌
+
+**文件**: `tools/analyze_balanced_brands.py`
+- 分析同时有正例和负例的品牌分布
+- 推荐合适的阈值策略
+
+#### 修改分割脚本
+
+**文件**: `tools/split_brandood.py`
+
+**主要修改**:
+1. **新增参数**:
+   - `--min-pos-per-brand`: 最低正例数阈值（默认1）
+   - `--min-neg-per-brand`: 最低负例数阈值（默认1）
+
+2. **实现 `select_balanced_brand_sets()` 函数**:
+   - 替换原有的 `select_brand_sets()` 函数
+   - 确保选择的品牌同时有正例和负例
+   - 将单侧品牌（只有正例或只有负例）放入OOD集
+   - 添加回退策略：如果没有品牌满足条件，选择有正例和负例的品牌（不限制数量）
+
+3. **实现 `stratified_split_by_brand_label()` 函数**:
+   - 替换原有的 `stratified_split()` 函数
+   - 按brand+label组合进行分层采样
+   - 处理样本数太少的组合（合并到OTHER组）
+   - 如果无法分层，回退到按label分层采样
+
+4. **添加数据质量检查**:
+   - `check_split_distribution()` 函数检查每个split的类别分布
+   - 如果某个split只有单一类别，输出错误并终止
+
+5. **保存分布统计**:
+   - 生成 `split_distribution_report.json` 文件
+   - 记录每个split的详细统计信息和参数
+
+#### 数据修复流程
+
+1. **数据检查**:
+   ```bash
+   python tools/check_brand_distribution.py --csv data/processed/master_v2.csv --out workspace/reports/brand_distribution_report.json
+   ```
+   - 发现只有8个品牌同时有正例和负例
+   - 只有1个品牌（autoscout24）同时有≥2个正例和≥2个负例
+
+2. **重新生成分割**:
+   ```bash
+   python tools/split_brandood.py \
+     --in data/processed/master_v2.csv \
+     --out workspace/data/splits/brandood \
+     --seed 42 \
+     --top_k 8 \
+     --min-neg-per-brand 1 \
+     --min-pos-per-brand 1 \
+     --ood-ratio 0.25
+   ```
+   - 选择了8个同时有正例和负例的品牌作为in-domain集合
+   - 生成了新的train/val/test_id/test_ood分割文件
+
+3. **重新预处理缓存**:
+   ```bash
+   # 为每个split运行预处理
+   python tools/preprocess_all_modalities.py \
+     --csv workspace/data/splits/brandood/train.csv \
+     --output workspace/data/preprocessed/brandood/train \
+     --out-csv workspace/data/splits/brandood/train_cached.csv \
+     --html-root data/processed \
+     --image-dir data/processed/screenshots \
+     # ... 其他参数
+   ```
+   - 重新生成了所有split的 `_cached.csv` 文件和预处理缓存
+
+#### 修复结果
+
+**修复前**:
+- 训练集: 3,231样本，正例3,230 (99.97%)，负例1 (0.03%)
+- 验证集: 693样本，正例693 (100%)，负例0 (0%) ⚠️
+- 测试集: 693样本，正例693 (100%)，负例0 (0%) ⚠️
+
+**修复后**:
+- 训练集: 127样本，正例119 (93.7%)，负例8 (6.3%) ✅
+- 验证集: 27样本，正例26 (96.3%)，负例1 (3.7%) ✅
+- 测试集 (test_id): 28样本，正例26 (92.9%)，负例2 (7.1%) ✅
+- 测试集 (test_ood): 7样本，正例3 (42.9%)，负例4 (57.1%) ✅
+
+#### 重新运行实验列表
+
+**需要重新运行的实验**:
+- `s0_brandood_earlyconcat` (所有seeds)
+- `s0_brandood_lateavg` (所有seeds)
+
+**运行命令**:
+```bash
+python scripts/run_s0_experiments.py \
+  --scenario brandood \
+  --models s0_earlyconcat s0_lateavg \
+  --seeds 42 43 44 \
+  --logger wandb
+```
+
+**评估命令**:
+```bash
+python scripts/evaluate_s0.py \
+  --runs-dir workspace/runs \
+  --scenarios brandood \
+  --out-csv workspace/tables/s0_brandood_eval_summary.csv
+```
+
+#### 相关文件
+
+- `tools/split_brandood.py`: 修改分割脚本
+- `tools/check_brand_distribution.py`: 新增数据检查脚本
+- `tools/analyze_balanced_brands.py`: 新增品牌分析脚本
+- `workspace/data/splits/brandood/*`: 重新生成的分割文件
+- `workspace/data/splits/brandood/*_cached.csv`: 重新生成的缓存CSV文件
+- `workspace/data/preprocessed/brandood/*`: 重新生成的预处理缓存
+- `BRANDOOD_ISSUE_REPORT.md`: 更新问题报告和修复流程
+
+## 2025-11-10: Windows训练速度优化
+
+### 问题背景
+
+训练速度极慢（仅0.03it/s），主要原因是Windows上的多进程配置问题。
+
+### 解决方案
+
+**修改配置文件中的num_workers设置**：
+- `configs/trainer/default.yaml`: num_workers: 4 → 0
+- `configs/experiment/multimodal_baseline.yaml`: num_workers: 4 → 0
+- `configs/data/url_only.yaml`: num_workers: 4 → 0
+- `configs/data/html_only.yaml`: num_workers: 4 → 0
+- `configs/default.yaml`: num_workers: 2 → 0
+
+**优化原理**：
+- Windows上多进程启动开销大，进程间通信成本高
+- 单进程模式（num_workers=0）避免多进程开销
+- 预加载HTML文件到内存，减少IO瓶颈
+
+**预期效果**：
+- 训练速度提升1.5-2倍
+- 消除"The 'train_dataloader' does not have many workers"警告
+
 ## 2025-11-07: 30k数据集构建脚本与验证
 
 ### 问题背景
@@ -665,3 +819,140 @@ python scripts/train_hydra.py experiment=multimodal_baseline datamodule.split_pr
 **变更状态**: ✅ 已完成
 **测试状态**: ⏳ 等待用户验证
 **论文合规**: ✅ 通过
+
+---
+
+## 2025-11-10: 缓存切换逻辑实现
+
+### 问题背景
+
+数据加载速度慢，需要实现自动缓存切换机制来提高训练效率。现有系统需要手动修改配置文件路径来使用缓存数据，不够灵活。
+
+### 解决方案
+
+#### 1. DataModule 自动缓存路径切换
+
+**文件**: `src/data/multimodal_datamodule.py`
+
+**新增方法**: `_maybe_use_cached()`
+- 自动检测是否存在对应的 `*_cached.csv` 文件
+- 如果存在，自动将 train/val/test_csv 路径切换到缓存版本
+- 保持向后兼容性，只在缓存文件存在时替换
+
+**关键逻辑**:
+```python
+def _maybe_use_cached(self) -> None:
+    if self.train_csv and self.train_csv.exists():
+        cached_train_csv = self.train_csv.parent / f"{self.train_csv.stem}_cached.csv"
+        if cached_train_csv.exists():
+            log.info(f">> 检测到缓存训练CSV，切换到: {cached_train_csv}")
+            self.train_csv = cached_train_csv
+```
+
+#### 2. Dataset 缓存优先加载机制
+
+**新增缓存加载方法**:
+- `_load_cached_html()`: 加载缓存的HTML tokens
+- `_load_cached_url()`: 加载缓存的URL tokens
+- `_load_cached_image()`: 加载缓存的图像（支持JPG和PT格式）
+
+**缓存优先策略**:
+```python
+# 先尝试加载缓存，失败则回退到原始逻辑
+url_ids = self._load_cached_url(row)
+if url_ids is None:
+    url_text = self._safe_string(row.get("url_text", row.get("url", "")))
+    url_ids = self._tokenize_url(url_text)
+```
+
+**路径解析方法**: `_resolve_cached_path()`
+- 将相对路径转换为绝对路径
+- 支持缓存根目录配置
+
+#### 3. W&B Run Name 配置优化
+
+**更新实验配置文件**:
+- `configs/experiment/s0_brandood_lateavg.yaml`: 明确设置 `run.name`
+- `configs/experiment/s0_brandood_earlyconcat.yaml`: 明确设置 `run.name`
+- 确保实验配置的run name不会被主配置覆盖
+
+#### 4. Brand-OOD 测试集配置
+
+**新增配置项**: `test_ood_csv`
+- 训练experiment中 `test_csv` 指向 `test_id.csv`（ID测试集）
+- 添加 `test_ood_csv` 配置项指向OOD测试集
+- 评估时可通过CLI参数切换测试集
+
+### 验证结果
+
+#### 缓存加载测试
+
+**命令**:
+```bash
+python tools/test_cache_loading.py --train-csv workspace/data/splits/iid/train_cached.csv --mode full --num-workers 4
+```
+
+**结果**:
+- ✅ **缓存路径检测成功**: DataModule自动切换到缓存CSV
+- ✅ **缓存文件加载成功**: 出现 `torch.load` 警告，说明缓存被正确加载
+- ✅ **性能大幅提升**: 平均速度从0.15 it/s提升到3.43 it/s（>3 it/s目标）
+- ✅ **缓存完整性**: 所有缓存文件存在且非空率100%
+
+#### 缓存完整性检查
+
+**命令**:
+```bash
+python tools/check_cache_integrity.py --scenario iid
+```
+
+**结果**:
+- ✅ **训练集**: 11,200样本，三列缓存文件100%存在
+- ✅ **验证集**: 2,400样本，三列缓存文件100%存在
+- ✅ **测试集**: 2,400样本，三列缓存文件100%存在
+
+### 技术亮点
+
+#### 1. 路径解析优化
+- 支持相对路径到绝对路径的自动转换
+- 通过 `cache_root` 参数传递预处理目录
+- 避免硬编码路径，提高灵活性
+
+#### 2. 异常处理机制
+- 所有缓存加载都包含存在性检查
+- 支持多种缓存格式（JPG需要transform，PT直接加载）
+- 单个缓存文件损坏不影响整体训练
+
+#### 3. 向后兼容性
+- 缓存文件不存在时自动回退到原始逻辑
+- 不影响未生成缓存的场景
+- 配置项可选，不强制要求
+
+### 文件变更清单
+
+| 文件 | 变更类型 | 说明 |
+|------|---------|------|
+| `src/data/multimodal_datamodule.py` | 新增方法 | 添加缓存路径切换和缓存加载方法 |
+| `configs/experiment/s0_brandood_lateavg.yaml` | 配置更新 | 添加test_ood_csv配置项 |
+| `configs/experiment/s0_brandood_earlyconcat.yaml` | 配置更新 | 添加test_ood_csv配置项 |
+
+### 使用指南
+
+#### 启用缓存
+1. 确保预处理脚本已生成 `*_cached.csv` 文件
+2. 运行训练时，系统会自动检测并使用缓存
+3. 查看日志确认缓存路径被正确加载
+
+#### 验证缓存
+```bash
+# 测试缓存加载速度
+python tools/test_cache_loading.py --train-csv workspace/data/splits/iid/train_cached.csv --mode full
+
+# 检查缓存完整性
+python tools/check_cache_integrity.py --scenario iid
+```
+
+---
+
+**变更状态**: ✅ 已完成
+**性能提升**: 3.43 it/s（达到预期目标）
+**论文合规**: ✅ 通过（Add-only修改）

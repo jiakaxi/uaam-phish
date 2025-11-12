@@ -18,6 +18,25 @@ import pandas as pd
 SCRIPT_RE = re.compile(r"<script.*?>.*?</script>", re.IGNORECASE | re.DOTALL)
 TAG_RE = re.compile(r"<[^>]+>")
 
+# Windows不允许的字符
+INVALID_CHARS = re.compile(r'[<>:"/\\|?*`\r\n]')
+
+
+def sanitize_filename(name: str, max_len: int = 200) -> str:
+    """清理文件名，移除Windows不允许的字符，限制长度"""
+    # 移除所有不允许的字符
+    safe = INVALID_CHARS.sub("_", name)
+    # 移除连续的下划线
+    safe = re.sub(r"_+", "_", safe)
+    # 移除首尾的下划线
+    safe = safe.strip("_")
+    # 如果文件名太长，使用hash缩短
+    if len(safe) > max_len:
+        name_hash = hashlib.md5(name.encode("utf-8")).hexdigest()[:8]
+        # 保留前100个字符和后部分hash
+        safe = safe[:100] + "_" + name_hash
+    return safe if safe else "unknown"
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Generate corrupted HTML files.")
@@ -72,10 +91,21 @@ def save_html(
 ) -> Dict[str, str]:
     target_dir = output_dir / level.upper() / "html"
     target_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{sample_id}.html"
+    safe_id = sanitize_filename(str(sample_id))
+    filename = f"{safe_id}.html"
     target_path = target_dir / filename
-    target_path.write_text(content, encoding="utf-8", errors="ignore")
-    sha256 = hashlib.sha256(target_path.read_bytes()).hexdigest()
+
+    try:
+        # 写入文件
+        target_path.write_text(content, encoding="utf-8", errors="ignore")
+        # 计算SHA256
+        sha256 = hashlib.sha256(target_path.read_bytes()).hexdigest()
+    except (OSError, IOError) as e:
+        # 如果文件操作失败，使用内容直接计算hash
+        sha256 = hashlib.sha256(content.encode("utf-8", errors="ignore")).hexdigest()
+        # 如果写入失败，记录错误但不中断流程
+        print(f"Warning: Failed to save HTML for {sample_id}: {e}")
+
     relative_path = target_path.relative_to(output_dir)
     return {
         "html_path_corrupt": str(relative_path).replace("\\", "/"),

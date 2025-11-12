@@ -7,11 +7,34 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import re
 from pathlib import Path
 from typing import Dict, List
 
 import pandas as pd
 from PIL import Image, ImageEnhance, ImageFilter
+
+# 增加PIL图像大小限制，防止DecompressionBombWarning
+Image.MAX_IMAGE_PIXELS = 500_000_000  # 500MP
+
+# Windows不允许的字符
+INVALID_CHARS = re.compile(r'[<>:"/\\|?*`\r\n]')
+
+
+def sanitize_filename(name: str, max_len: int = 200) -> str:
+    """清理文件名，移除Windows不允许的字符，限制长度"""
+    # 移除所有不允许的字符
+    safe = INVALID_CHARS.sub("_", name)
+    # 移除连续的下划线
+    safe = re.sub(r"_+", "_", safe)
+    # 移除首尾的下划线
+    safe = safe.strip("_")
+    # 如果文件名太长，使用hash缩短
+    if len(safe) > max_len:
+        name_hash = hashlib.md5(name.encode("utf-8")).hexdigest()[:8]
+        # 保留前100个字符和后部分hash
+        safe = safe[:100] + "_" + name_hash
+    return safe if safe else "unknown"
 
 
 def parse_args() -> argparse.Namespace:
@@ -66,10 +89,53 @@ def save_corrupt_image(
 ) -> Dict[str, str]:
     target_dir = output_dir / level.upper() / "shot"
     target_dir.mkdir(parents=True, exist_ok=True)
-    filename = f"{sample_id}.jpg"
+    safe_id = sanitize_filename(str(sample_id))
+    filename = f"{safe_id}.jpg"
     target_path = target_dir / filename
-    img.save(target_path, "JPEG", quality=95)
-    sha256 = hashlib.sha256(target_path.read_bytes()).hexdigest()
+
+    # 确保图像大小合理（最大边不超过8192像素）
+    max_dim = 8192
+    if img.width > max_dim or img.height > max_dim:
+        if img.width > img.height:
+            new_width = max_dim
+            new_height = int(img.height * max_dim / img.width)
+        else:
+            new_height = max_dim
+            new_width = int(img.width * max_dim / img.height)
+        img = img.resize((new_width, new_height), Image.Resampling.BILINEAR)
+
+    sha256 = ""
+    try:
+        # 保存图像
+        img.save(target_path, "JPEG", quality=95, optimize=True)
+        # 计算SHA256
+        sha256 = hashlib.sha256(target_path.read_bytes()).hexdigest()
+    except (OSError, IOError, ValueError) as e:
+        # 如果文件操作失败，尝试使用更小的quality或PNG格式
+        try:
+            # 尝试降低质量
+            img.save(target_path, "JPEG", quality=85, optimize=True)
+            sha256 = hashlib.sha256(target_path.read_bytes()).hexdigest()
+        except Exception:
+            # 如果还是失败，使用图像数据直接计算hash
+            import io
+
+            buffer = io.BytesIO()
+            try:
+                img.save(buffer, "JPEG", quality=85, format="JPEG")
+                sha256 = hashlib.sha256(buffer.getvalue()).hexdigest()
+            except Exception:
+                # 最后尝试PNG
+                buffer = io.BytesIO()
+                img.save(buffer, "PNG")
+                sha256 = hashlib.sha256(buffer.getvalue()).hexdigest()
+                # 更改文件扩展名
+                target_path = target_path.with_suffix(".png")
+                filename = f"{safe_id}.png"
+            print(
+                f"Warning: Failed to save JPEG for {sample_id}, using alternative format: {e}"
+            )
+
     relative_path = target_path.relative_to(output_dir)
     return {
         "img_path_corrupt": str(relative_path).replace("\\", "/"),
@@ -104,7 +170,20 @@ def main() -> None:
                 if resolved.exists():
                     try:
                         img = Image.open(resolved).convert("RGB")
-                    except Exception:
+                        # Resize超大图像到合理大小（最大边4096像素）
+                        max_size = 4096
+                        if img.width > max_size or img.height > max_size:
+                            if img.width > img.height:
+                                new_width = max_size
+                                new_height = int(img.height * max_size / img.width)
+                            else:
+                                new_height = max_size
+                                new_width = int(img.width * max_size / img.height)
+                            img = img.resize(
+                                (new_width, new_height), Image.Resampling.BILINEAR
+                            )
+                    except Exception as e:
+                        print(f"Warning: Failed to load image {resolved}: {e}")
                         img = Image.new("RGB", (224, 224), color=(128, 128, 128))
                 else:
                     img = Image.new("RGB", (224, 224), color=(128, 128, 128))

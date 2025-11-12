@@ -37,6 +37,7 @@ class MultimodalDataset(Dataset):
         image_dir: Path,
         corrupt_root: Optional[Path] = None,
         preload_html: bool = True,
+        cache_root: Optional[Path] = None,  # 缓存根目录
     ) -> None:
         self.df = df.reset_index(drop=True)
         self.url_max_len = url_max_len
@@ -46,6 +47,7 @@ class MultimodalDataset(Dataset):
         self.visual_transform = visual_transform
         self.image_dir = image_dir
         self.corrupt_root = Path(corrupt_root) if corrupt_root else None
+        self.cache_root = Path(cache_root) if cache_root else None
 
         # 预加载HTML文件到内存（性能优化）
         self.html_cache: Dict[int, str] = {}
@@ -78,26 +80,55 @@ class MultimodalDataset(Dataset):
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         row = self.df.iloc[idx]
         sample_id = row.get("sample_id", row.get("id", idx))
-        url_text = self._safe_string(row.get("url_text", row.get("url", "")))
-        html_text = self._load_html(row, idx)
-        image_tensor = self._load_image(row)
+
+        # 缓存优先加载：先尝试加载缓存，失败则回退到原始逻辑
+        url_ids = self._load_cached_url(row)
+        if url_ids is not None:
+            log.debug(f">> 样本 {sample_id}: URL缓存命中")
+        else:
+            url_text = self._safe_string(row.get("url_text", row.get("url", "")))
+            url_ids = self._tokenize_url(url_text)
+            log.debug(f">> 样本 {sample_id}: URL缓存未命中，使用tokenizer")
+
+        html_encoded = self._load_cached_html(row)
+        if html_encoded is not None:
+            log.debug(f">> 样本 {sample_id}: HTML缓存命中")
+        else:
+            html_text = self._load_html(row, idx)
+            html_encoded = self.html_tokenizer(
+                html_text,
+                max_length=self.html_max_len,
+                padding="max_length",
+                truncation=True,
+                return_tensors="pt",
+            )
+            log.debug(f">> 样本 {sample_id}: HTML缓存未命中，使用tokenizer")
+
+        image_tensor = self._load_cached_image(row)
+        if image_tensor is not None:
+            log.debug(f">> 样本 {sample_id}: 图像缓存命中")
+        else:
+            image_tensor = self._load_image(row)
+            log.debug(f">> 样本 {sample_id}: 图像缓存未命中，使用原始图像")
+
         label = int(row.get("label", 0))
 
-        url_ids = self._tokenize_url(url_text)
-        html_encoded = self.html_tokenizer(
-            html_text,
-            max_length=self.html_max_len,
-            padding="max_length",
-            truncation=True,
-            return_tensors="pt",
-        )
+        # 处理HTML编码，确保返回正确的格式
+        if hasattr(html_encoded, "keys") and "input_ids" in html_encoded:
+            # 来自tokenizer的BatchEncoding
+            html_input_ids = html_encoded["input_ids"].squeeze(0)
+            html_attention_mask = html_encoded["attention_mask"].squeeze(0)
+        else:
+            # 来自缓存的tensor
+            html_input_ids = html_encoded
+            html_attention_mask = torch.ones_like(html_input_ids)
 
         return {
             "id": sample_id,
             "url": url_ids,
             "html": {
-                "input_ids": html_encoded["input_ids"].squeeze(0),
-                "attention_mask": html_encoded["attention_mask"].squeeze(0),
+                "input_ids": html_input_ids,
+                "attention_mask": html_attention_mask,
             },
             "visual": image_tensor,
             "label": torch.tensor(label, dtype=torch.long),
@@ -117,6 +148,22 @@ class MultimodalDataset(Dataset):
             char_ids += [0] * (self.url_max_len - len(char_ids))
         return torch.tensor(char_ids, dtype=torch.long)
 
+    def _load_cached_url(self, row: pd.Series) -> Optional[torch.Tensor]:
+        """
+        加载缓存的URL tokens。
+        如果url_tokens_path存在且文件存在，则加载缓存的tensor。
+        """
+        if "url_tokens_path" in row and pd.notna(row["url_tokens_path"]):
+            cached_path = self._resolve_cached_path(row["url_tokens_path"])
+            if cached_path and cached_path.exists():
+                try:
+                    cached_tensor = torch.load(cached_path)
+                    log.debug(f">> 加载缓存的URL tokens: {cached_path}")
+                    return cached_tensor
+                except Exception as exc:
+                    log.warning(f"加载URL缓存失败 {cached_path}: {exc}")
+        return None
+
     def _load_html(self, row: pd.Series, idx: int) -> str:
         # 使用缓存（如果可用）
         if idx in self.html_cache:
@@ -133,6 +180,33 @@ class MultimodalDataset(Dataset):
             except Exception as exc:
                 log.warning("Failed to read HTML from %s: %s", html_path, exc)
         return ""
+
+    def _resolve_cached_path(self, cached_rel: str) -> Optional[Path]:
+        """
+        解析缓存文件路径，将相对路径转换为绝对路径。
+        """
+        if not cached_rel or pd.isna(cached_rel):
+            return None
+        path = Path(cached_rel)
+        if not path.is_absolute() and self.cache_root:
+            path = self.cache_root / path
+        return path if path.exists() else None
+
+    def _load_cached_html(self, row: pd.Series) -> Optional[torch.Tensor]:
+        """
+        加载缓存的HTML tokens。
+        如果html_tokens_path存在且文件存在，则加载缓存的tensor。
+        """
+        if "html_tokens_path" in row and pd.notna(row["html_tokens_path"]):
+            cached_path = self._resolve_cached_path(row["html_tokens_path"])
+            if cached_path and cached_path.exists():
+                try:
+                    cached_tensor = torch.load(cached_path)
+                    log.debug(f">> 加载缓存的HTML tokens: {cached_path}")
+                    return cached_tensor
+                except Exception as exc:
+                    log.warning(f"加载HTML缓存失败 {cached_path}: {exc}")
+        return None
 
     def _load_image(self, row: pd.Series) -> torch.Tensor:
         img_path = row.get("img_path_corrupt")
@@ -175,6 +249,31 @@ class MultimodalDataset(Dataset):
             img = Image.new("RGB", (224, 224))
         return self.visual_transform(img)
 
+    def _load_cached_image(self, row: pd.Series) -> Optional[torch.Tensor]:
+        """
+        加载缓存的图像。
+        支持JPG和PT格式，JPG需要transform，PT直接加载tensor。
+        """
+        if "img_path_cached" in row and pd.notna(row["img_path_cached"]):
+            cached_path = self._resolve_cached_path(row["img_path_cached"])
+            if cached_path and cached_path.exists():
+                try:
+                    if cached_path.suffix.lower() in [".pt", ".pth"]:
+                        # 直接加载tensor
+                        cached_tensor = torch.load(cached_path)
+                        log.debug(f">> 加载缓存的图像tensor: {cached_path}")
+                        return cached_tensor
+                    elif cached_path.suffix.lower() in [".jpg", ".jpeg", ".png"]:
+                        # 加载JPG图像并应用transform
+                        img = Image.open(cached_path).convert("RGB")
+                        log.debug(f">> 加载缓存的JPG图像: {cached_path}")
+                        return self.visual_transform(img)
+                    else:
+                        log.warning(f"不支持的缓存图像格式: {cached_path.suffix}")
+                except Exception as exc:
+                    log.warning(f"加载图像缓存失败 {cached_path}: {exc}")
+        return None
+
     def _resolve_image_path(self, path_str: str, prefer_corrupt: bool) -> Path:
         candidate = Path(path_str)
         if candidate.is_absolute():
@@ -199,11 +298,13 @@ class MultimodalDataModule(pl.LightningDataModule):
         train_csv: Optional[str] = None,
         val_csv: Optional[str] = None,
         test_csv: Optional[str] = None,
+        test_ood_csv: Optional[str] = None,  # OOD测试集备用
         split_protocol: str = "presplit",
         batch_size: int = 128,
         num_workers: int = 4,
         pin_memory: bool = True,
         persistent_workers: Optional[bool] = None,
+        prefetch_factor: Optional[int] = None,
         use_augmentation: bool = False,
         url_max_len: int = 200,
         url_vocab_size: int = 128,
@@ -211,6 +312,10 @@ class MultimodalDataModule(pl.LightningDataModule):
         image_dir: Optional[str] = None,
         corrupt_root: Optional[str] = "workspace/data/corrupt",
         use_presplit: bool = True,
+        preload_html: Optional[bool] = None,
+        preprocessed_train_dir: Optional[str] = None,
+        preprocessed_val_dir: Optional[str] = None,
+        preprocessed_test_dir: Optional[str] = None,
         cfg: Any = None,
         **kwargs: Any,
     ) -> None:
@@ -219,6 +324,7 @@ class MultimodalDataModule(pl.LightningDataModule):
         self.train_csv = Path(train_csv) if train_csv else None
         self.val_csv = Path(val_csv) if val_csv else None
         self.test_csv = Path(test_csv) if test_csv else None
+        self.test_ood_csv = Path(test_ood_csv) if test_ood_csv else None
         self.url_data_path = Path(url_data_path) if url_data_path else None
         self.html_data_path = Path(html_data_path) if html_data_path else None
         self.visual_data_path = Path(visual_data_path) if visual_data_path else None
@@ -232,6 +338,7 @@ class MultimodalDataModule(pl.LightningDataModule):
             if persistent_workers is not None
             else self.num_workers > 0
         )
+        self.prefetch_factor = prefetch_factor
         self.use_augmentation = use_augmentation
         self.url_max_len = url_max_len
         self.url_vocab_size = url_vocab_size
@@ -241,13 +348,79 @@ class MultimodalDataModule(pl.LightningDataModule):
         )
         self.corrupt_root = Path(corrupt_root) if corrupt_root else None
 
+        # 预处理目录：如果提供了预处理目录，自动禁用HTML预加载
+        self.preprocessed_train_dir = (
+            Path(preprocessed_train_dir) if preprocessed_train_dir else None
+        )
+        self.preprocessed_val_dir = (
+            Path(preprocessed_val_dir) if preprocessed_val_dir else None
+        )
+        self.preprocessed_test_dir = (
+            Path(preprocessed_test_dir) if preprocessed_test_dir else None
+        )
+
+        # 如果提供了预处理目录，自动设置preload_html为False
+        if preload_html is None:
+            if any(
+                [
+                    self.preprocessed_train_dir,
+                    self.preprocessed_val_dir,
+                    self.preprocessed_test_dir,
+                ]
+            ):
+                self.preload_html = False
+                log.info(
+                    ">> Preprocessed directories provided, disabling HTML preloading"
+                )
+            else:
+                self.preload_html = True  # 默认行为
+        else:
+            self.preload_html = preload_html
+
         self.train_dataset: Optional[Dataset] = None
         self.val_dataset: Optional[Dataset] = None
         self.test_dataset: Optional[Dataset] = None
         self.split_metadata: Dict[str, Any] = {}
 
+    def _maybe_use_cached(self) -> None:
+        """
+        自动检测并使用缓存CSV文件。
+        如果存在对应的*_cached.csv文件，则自动切换train/val/test_csv路径。
+        """
+        # 检查并切换train_csv
+        if self.train_csv and self.train_csv.exists():
+            cached_train_csv = (
+                self.train_csv.parent / f"{self.train_csv.stem}_cached.csv"
+            )
+            if cached_train_csv.exists():
+                log.info(f">> 检测到缓存训练CSV，切换到: {cached_train_csv}")
+                self.train_csv = cached_train_csv
+            else:
+                log.info(f">> 未找到缓存训练CSV，使用原始文件: {self.train_csv}")
+
+        # 检查并切换val_csv
+        if self.val_csv and self.val_csv.exists():
+            cached_val_csv = self.val_csv.parent / f"{self.val_csv.stem}_cached.csv"
+            if cached_val_csv.exists():
+                log.info(f">> 检测到缓存验证CSV，切换到: {cached_val_csv}")
+                self.val_csv = cached_val_csv
+            else:
+                log.info(f">> 未找到缓存验证CSV，使用原始文件: {self.val_csv}")
+
+        # 检查并切换test_csv
+        if self.test_csv and self.test_csv.exists():
+            cached_test_csv = self.test_csv.parent / f"{self.test_csv.stem}_cached.csv"
+            if cached_test_csv.exists():
+                log.info(f">> 检测到缓存测试CSV，切换到: {cached_test_csv}")
+                self.test_csv = cached_test_csv
+            else:
+                log.info(f">> 未找到缓存测试CSV，使用原始文件: {self.test_csv}")
+
     # ------------------------------------------------------------------ #
     def setup(self, stage: Optional[str] = None) -> None:
+        # 自动检测并使用缓存CSV文件
+        self._maybe_use_cached()
+
         full_df = None
         if not (self.train_csv and self.val_csv and self.test_csv):
             full_df = self._load_dataframe()
@@ -266,6 +439,8 @@ class MultimodalDataModule(pl.LightningDataModule):
                 visual_transform=train_transform,
                 image_dir=self.image_dir,
                 corrupt_root=self.corrupt_root,
+                preload_html=self.preload_html,
+                cache_root=self.preprocessed_train_dir,  # 训练集缓存目录
             )
             self.val_dataset = MultimodalDataset(
                 val_df,
@@ -276,6 +451,8 @@ class MultimodalDataModule(pl.LightningDataModule):
                 visual_transform=eval_transform,
                 image_dir=self.image_dir,
                 corrupt_root=self.corrupt_root,
+                preload_html=self.preload_html,
+                cache_root=self.preprocessed_val_dir,  # 验证集缓存目录
             )
 
         if stage in (None, "test"):
@@ -288,38 +465,49 @@ class MultimodalDataModule(pl.LightningDataModule):
                 visual_transform=eval_transform,
                 image_dir=self.image_dir,
                 corrupt_root=self.corrupt_root,
+                preload_html=self.preload_html,
+                cache_root=self.preprocessed_test_dir,  # 测试集缓存目录
             )
 
     # ------------------------------------------------------------------ #
     def train_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.train_dataset,
-            batch_size=self.batch_size,
-            shuffle=True,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers,
-        )
+        loader_kwargs = {
+            "batch_size": self.batch_size,
+            "shuffle": True,
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+            "persistent_workers": self.persistent_workers,
+        }
+        # prefetch_factor只在num_workers > 0时有效
+        if self.num_workers > 0 and self.prefetch_factor is not None:
+            loader_kwargs["prefetch_factor"] = self.prefetch_factor
+        return DataLoader(self.train_dataset, **loader_kwargs)
 
     def val_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.val_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers,
-        )
+        loader_kwargs = {
+            "batch_size": self.batch_size,
+            "shuffle": False,
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+            "persistent_workers": self.persistent_workers,
+        }
+        # prefetch_factor只在num_workers > 0时有效
+        if self.num_workers > 0 and self.prefetch_factor is not None:
+            loader_kwargs["prefetch_factor"] = self.prefetch_factor
+        return DataLoader(self.val_dataset, **loader_kwargs)
 
     def test_dataloader(self) -> DataLoader:
-        return DataLoader(
-            self.test_dataset,
-            batch_size=self.batch_size,
-            shuffle=False,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory,
-            persistent_workers=self.persistent_workers,
-        )
+        loader_kwargs = {
+            "batch_size": self.batch_size,
+            "shuffle": False,
+            "num_workers": self.num_workers,
+            "pin_memory": self.pin_memory,
+            "persistent_workers": self.persistent_workers,
+        }
+        # prefetch_factor只在num_workers > 0时有效
+        if self.num_workers > 0 and self.prefetch_factor is not None:
+            loader_kwargs["prefetch_factor"] = self.prefetch_factor
+        return DataLoader(self.test_dataset, **loader_kwargs)
 
     # ------------------------------------------------------------------ #
     def _load_dataframe(self) -> pd.DataFrame:

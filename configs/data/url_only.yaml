@@ -6,7 +6,7 @@ data:
   train_csv: ${oc.env:DATA_ROOT,data/processed}/url_train_v2.csv
   val_csv: ${oc.env:DATA_ROOT,data/processed}/url_val_v2.csv
   test_csv: ${oc.env:DATA_ROOT,data/processed}/url_test_v2.csv
-  num_workers: 4
+  num_workers: 0  # Windows优化：单进程避免多进程开销
   text_col: url_text
   label_col: label
   timestamp_col: timestamp

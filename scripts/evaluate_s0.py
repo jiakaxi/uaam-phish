@@ -30,16 +30,44 @@ def parse_args() -> argparse.Namespace:
         default="workspace/tables/s0_eval_summary.csv",
         help="Path to aggregated CSV.",
     )
+    parser.add_argument(
+        "--scenarios",
+        nargs="+",
+        default=None,
+        help="Filter by scenario (e.g., 'iid', 'brandood'). If not specified, process all scenarios.",
+    )
     return parser.parse_args()
 
 
 def extract_metadata(run_dir: Path) -> Dict[str, str]:
-    model_name = run_dir.parent.name
-    seed_token = run_dir.name
+    # 从实验目录名提取模型名称和种子
+    exp_name = run_dir.name
+    if "earlyconcat" in exp_name:
+        model_name = "s0_earlyconcat"
+    elif "lateavg" in exp_name:
+        model_name = "s0_lateavg"
+    else:
+        model_name = exp_name.split("_")[0]  # 默认取第一个部分
+
+    # 从目录名提取种子（假设格式为 ..._seed_42_...）
+    seed = "unknown"
+    if "seed_" in exp_name:
+        seed_parts = exp_name.split("seed_")
+        if len(seed_parts) > 1:
+            seed = seed_parts[1].split("_")[0]
+
+    # 从目录名提取场景（iid或brandood）
+    scenario = "unknown"
+    if "brandood" in exp_name or "brand_ood" in exp_name:
+        scenario = "brandood"
+    elif "iid" in exp_name:
+        scenario = "iid"
+
     return {
         "model": model_name,
+        "scenario": scenario,
         "run_dir": str(run_dir),
-        "seed": seed_token.replace("seed_", ""),
+        "seed": seed,
     }
 
 
@@ -78,16 +106,26 @@ def main() -> None:
     runs_root = Path(args.runs_dir)
     summary_records: List[Dict[str, object]] = []
 
-    for model_dir in runs_root.glob("*"):
-        if not model_dir.is_dir():
-            continue
-        for run_dir in model_dir.glob("seed_*"):
-            artifacts_dir = run_dir / "artifacts"
-            preds_path = artifacts_dir / "predictions_test.csv"
-            if not preds_path.exists():
-                continue
-            metrics = evaluate_predictions(preds_path)
+    # 搜索所有包含predictions_test.csv的实验目录
+    # 同时搜索experiments目录（如果runs_dir不是experiments）
+    search_paths = [runs_root]
+    if runs_root.name != "experiments" and Path("experiments").exists():
+        search_paths.append(Path("experiments"))
+
+    for search_path in search_paths:
+        for preds_path in search_path.glob("**/predictions_test.csv"):
+            artifacts_dir = preds_path.parent
+            run_dir = artifacts_dir.parent
+
+            # 提取元数据
             record = extract_metadata(run_dir)
+
+            # 如果指定了scenarios参数，进行筛选
+            if args.scenarios is not None:
+                if record.get("scenario", "unknown") not in args.scenarios:
+                    continue
+
+            metrics = evaluate_predictions(preds_path)
             record.update(metrics)
             summary_records.append(record)
 
@@ -102,8 +140,12 @@ def main() -> None:
 
     out_path = Path(args.out_csv)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    pd.DataFrame(summary_records).to_csv(out_path, index=False)
+    df = pd.DataFrame(summary_records)
+    df.to_csv(out_path, index=False)
     print(f"[evaluate_s0] Wrote aggregate metrics to {out_path}")
+    print(f"[evaluate_s0] Total experiments: {len(summary_records)}")
+    if args.scenarios:
+        print(f"[evaluate_s0] Filtered by scenarios: {args.scenarios}")
 
 
 if __name__ == "__main__":

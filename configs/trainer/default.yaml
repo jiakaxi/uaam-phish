@@ -5,7 +5,7 @@ hardware:
   accelerator: auto
   devices: auto
   precision: 16  # Sec. 4.6.3: mixed-precision (AMP)
-  num_workers: 4
+  num_workers: 0  # Windows优化：单进程避免多进程开销
 
 train:
   epochs: 25        # Sec. 4.6.3: max epochs
@@ -20,10 +20,13 @@ eval:
   monitor: val/auroc  # Sec. 4.6.3: validation AUROC drives early stopping
   patience: 10
 
-# Trainer debug/test parameters (optional, can be overridden with +trainer.*)
+# Trainer debug/test parameters (optional, can be overridden with trainer.*)
 trainer:
   fast_dev_run: false
   limit_train_batches: null
   limit_val_batches: null
   limit_test_batches: null
   overfit_batches: 0
+  max_epochs: null  # Optional: override train.epochs if set
+  deterministic: true  # 确保可复现性
+  benchmark: false    # 禁用基准测试以确保确定性

@@ -12,8 +12,6 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
 
 from src.utils.seed import set_global_seed
-from src.systems.url_only_module import UrlOnlySystem
-from src.datamodules.url_datamodule import UrlDataModule
 from src.utils.experiment_tracker import ExperimentTracker
 from src.utils.callbacks import ExperimentResultsCallback, TestPredictionCollector
 from src.utils.doc_callback import DocumentationCallback
@@ -55,9 +53,8 @@ def train(cfg: DictConfig) -> float:
         dm = hydra.utils.instantiate(cfg.datamodule, cfg=cfg)
         log.info(">> DataModule: %s", cfg.datamodule._target_)
     else:
-        dm = UrlDataModule(cfg)
-        log.info(
-            ">> DataModule: src.datamodules.url_datamodule.UrlDataModule (default)"
+        raise ValueError(
+            "DataModule _target_ not specified. S0 experiments require explicit MultimodalDataModule configuration."
         )
 
     # Instantiate System
@@ -65,8 +62,9 @@ def train(cfg: DictConfig) -> float:
         model = hydra.utils.instantiate(cfg.system, cfg=cfg)
         log.info(">> System: %s", cfg.system._target_)
     else:
-        model = UrlOnlySystem(cfg)
-        log.info(">> System: src.systems.url_only_module.UrlOnlySystem (default)")
+        raise ValueError(
+            "System _target_ not specified. S0 experiments require explicit MultimodalSystem configuration."
+        )
 
     if artifact_dir and hasattr(model, "set_artifact_dir"):
         model.set_artifact_dir(artifact_dir)
@@ -94,6 +92,7 @@ def train(cfg: DictConfig) -> float:
             monitor=monitor,
             mode=mode,
             save_top_k=1,
+            save_weights_only=True,  # 只保存权重，避免完整模型序列化
             filename=f"best-{{epoch}}-{{{monitor.replace('/', '_')}:.3f}}",
         ),
     ]
@@ -133,8 +132,14 @@ def train(cfg: DictConfig) -> float:
             log.warning("   Falling back to CSV logger")
 
     # 构建 Trainer 参数（支持 fast_dev_run、limit_* 等调试参数）
+    # 确定max_epochs：优先使用trainer.max_epochs，否则使用train.epochs
+    max_epochs = cfg.train.epochs
+    if "trainer" in cfg and "max_epochs" in cfg.trainer:
+        max_epochs = cfg.trainer.max_epochs
+        log.info(">> Using trainer.max_epochs=%s (overrides train.epochs)", max_epochs)
+
     trainer_kwargs = {
-        "max_epochs": cfg.train.epochs,
+        "max_epochs": max_epochs,
         "accelerator": cfg.hardware.accelerator,
         "devices": cfg.hardware.devices,
         "precision": cfg.hardware.precision,
@@ -146,7 +151,7 @@ def train(cfg: DictConfig) -> float:
         "accumulate_grad_batches": cfg.train.get("grad_accumulation", 1),
     }
 
-    # 支持调试/测试参数（通过 +trainer.* 添加）
+    # 支持调试/测试参数（通过 trainer.* 添加）
     if "trainer" in cfg:
         for debug_param in [
             "fast_dev_run",
@@ -154,14 +159,16 @@ def train(cfg: DictConfig) -> float:
             "limit_val_batches",
             "limit_test_batches",
             "overfit_batches",
+            "max_epochs",  # 已在上面处理，但允许在trainer中设置
         ]:
             if debug_param in cfg.trainer:
-                trainer_kwargs[debug_param] = cfg.trainer[debug_param]
-                log.info(
-                    ">> Debug mode enabled: %s=%s",
-                    debug_param,
-                    cfg.trainer[debug_param],
-                )
+                if debug_param != "max_epochs":  # max_epochs已在上面处理
+                    trainer_kwargs[debug_param] = cfg.trainer[debug_param]
+                    log.info(
+                        ">> Debug mode enabled: %s=%s",
+                        debug_param,
+                        cfg.trainer[debug_param],
+                    )
 
     trainer = pl.Trainer(**trainer_kwargs)
 
@@ -191,7 +198,9 @@ def train(cfg: DictConfig) -> float:
         log.info("  - Min delta: %s", min_delta)
     log.info("=" * 70 + "\n")
 
-    trainer.fit(model, dm)
+    # 如果 max_epochs=0，跳过训练，直接进行测试
+    if max_epochs > 0:
+        trainer.fit(model, dm)
 
     if hasattr(dm, "split_metadata"):
         if hasattr(model, "set_split_metadata"):
@@ -199,10 +208,30 @@ def train(cfg: DictConfig) -> float:
         log.info(
             ">> DataModule split metadata keys: %s", list(dm.split_metadata.keys())
         )
+    else:
+        log.info(">> max_epochs=0，跳过训练，直接进行测试")
+        # 即使不训练，也需要设置 split_metadata（如果有）
+        if hasattr(dm, "split_metadata"):
+            if hasattr(model, "set_split_metadata"):
+                model.set_split_metadata(dm.split_metadata)
 
     dm.setup(stage="test")
     # In fast_dev_run mode, checkpoints are not saved, so we test with current weights
-    ckpt_path = "best" if not getattr(cfg.trainer, "fast_dev_run", False) else None
+    # 如果配置中指定了 ckpt_path，使用它；否则使用 "best" 或 None
+    if hasattr(cfg.trainer, "ckpt_path") and cfg.trainer.ckpt_path:
+        ckpt_path = str(cfg.trainer.ckpt_path)
+        log.info(f">> 使用指定的 checkpoint: {ckpt_path}")
+    elif max_epochs == 0:
+        # max_epochs=0 时，必须指定 checkpoint
+        if hasattr(cfg.trainer, "ckpt_path") and cfg.trainer.ckpt_path:
+            ckpt_path = str(cfg.trainer.ckpt_path)
+        else:
+            log.warning(">> max_epochs=0 但未指定 checkpoint，将使用当前模型权重")
+            ckpt_path = None
+    elif not getattr(cfg.trainer, "fast_dev_run", False):
+        ckpt_path = "best"
+    else:
+        ckpt_path = None
     test_results = trainer.test(
         model, dataloaders=dm.test_dataloader(), ckpt_path=ckpt_path
     )

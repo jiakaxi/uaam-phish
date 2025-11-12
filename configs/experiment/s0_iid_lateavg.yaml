@@ -37,19 +37,24 @@ system:
 datamodule:
   _target_: src.data.multimodal_datamodule.MultimodalDataModule
   _recursive_: false
-  train_csv: workspace/data/splits/iid/train.csv
-  val_csv: workspace/data/splits/iid/val.csv
-  test_csv: workspace/data/splits/iid/test.csv
+  train_csv: workspace/data/splits/iid/train_cached.csv
+  val_csv: workspace/data/splits/iid/val_cached.csv
+  test_csv: workspace/data/splits/iid/test_cached.csv
   image_dir: data/processed/screenshots
   corrupt_root: workspace/data/corrupt
-  batch_size: 64
-  num_workers: 0  # Windows优化：单进程避免多进程开销
+  batch_size: 32
+  num_workers: 4
   pin_memory: true
-  persistent_workers: false
+  persistent_workers: true
+  prefetch_factor: 2
   use_augmentation: false
   url_max_len: 200
   url_vocab_size: 128
   html_max_len: 256
+  preload_html: false  # 跳过HTML预加载（已预处理）
+  preprocessed_train_dir: workspace/data/preprocessed/iid/train
+  preprocessed_val_dir: workspace/data/preprocessed/iid/val
+  preprocessed_test_dir: workspace/data/preprocessed/iid/test
 
 paths:
   output_dir: workspace/runs/${run.name}/seed_${run.seed}
@@ -62,9 +67,9 @@ hardware:
 train:
   epochs: 20
   lr: 3.0e-4
-  bs: 64
+  bs: 32
   weight_decay: 1.0e-4
-  grad_accumulation: 2
+  grad_accumulation: 1
   log_every: 25
 
 eval:

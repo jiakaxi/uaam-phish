@@ -1,118 +1,115 @@
 #!/usr/bin/env python
 """
-Summarize S0 evaluation results across seeds.
+Generate summary table with mean ± std for S0 experiments.
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
-from typing import Dict, List
+from typing import List
 
 import pandas as pd
-import matplotlib.pyplot as plt
+import numpy as np
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Summarize S0 results.")
-    parser.add_argument(
-        "--runs_dir", default="workspace/runs", help="Root directory containing runs."
+    parser = argparse.ArgumentParser(
+        description="Summarize S0 results with statistics."
     )
     parser.add_argument(
-        "--out_tables",
-        default="workspace/tables",
-        help="Directory to store summary tables.",
+        "--eval_csv",
+        default="workspace/tables/s0_eval_summary.csv",
+        help="Path to evaluation CSV file.",
     )
     parser.add_argument(
-        "--out_figs",
-        default="workspace/figs",
-        help="Directory to store plots.",
+        "--out_table",
+        default="workspace/tables/s0_results_summary.md",
+        help="Path to output summary table.",
     )
     return parser.parse_args()
 
 
-def collect_eval_records(runs_root: Path) -> List[Dict[str, object]]:
-    records = []
-    for model_dir in runs_root.glob("*"):
-        if not model_dir.is_dir():
-            continue
-        for run_dir in model_dir.glob("seed_*"):
-            summary_path = run_dir / "eval_summary.json"
-            if not summary_path.exists():
-                continue
-            with open(summary_path, "r", encoding="utf-8") as f:
-                record = json.load(f)
-            records.append(record)
-    return records
+def calculate_statistics(df: pd.DataFrame, metrics: List[str]) -> pd.DataFrame:
+    """Calculate mean ± std for each model and metric."""
+    results = []
 
+    for model in df["model"].unique():
+        model_data = df[df["model"] == model]
+        row = {"Model": model}
 
-def build_summary(df: pd.DataFrame) -> pd.DataFrame:
-    metrics = [
-        "accuracy",
-        "f1",
-        "auroc",
-        "brier",
-        "ece",
-        "fpr_at_tpr95",
-    ]
-    grouped = (
-        df.groupby("model")[metrics]
-        .agg(["mean", "std"])
-        .reset_index()
-        .sort_values(("auroc", "mean"), ascending=False)
-    )
-    grouped.columns = ["_".join(col).strip("_") for col in grouped.columns.values]
-    return grouped
+        for metric in metrics:
+            values = model_data[metric].values
+            mean_val = np.mean(values)
+            std_val = np.std(values)
 
+            # Format as mean ± std
+            if metric in ["accuracy", "f1", "auroc", "brier", "ece"]:
+                # Format with appropriate precision
+                if metric in ["accuracy", "f1", "auroc"]:
+                    row[metric] = f"{mean_val:.4f} ± {std_val:.4f}"
+                else:
+                    row[metric] = f"{mean_val:.4f} ± {std_val:.4f}"
+            elif metric == "fpr_at_tpr95":
+                row[metric] = f"{mean_val:.4f} ± {std_val:.4f}"
 
-def plot_auroc(df: pd.DataFrame, out_path: Path) -> None:
-    models = df["model"].unique()
-    means = df.groupby("model")["auroc"].mean().loc[models]
-    stds = df.groupby("model")["auroc"].std().loc[models].fillna(0.0)
+        results.append(row)
 
-    plt.figure(figsize=(6, 4))
-    bars = plt.bar(models, means, yerr=stds, capsize=5)
-    plt.ylim(0.0, 1.0)
-    plt.ylabel("AUROC")
-    plt.title("S0 Evaluation AUROC (mean ± std)")
-    for bar, value in zip(bars, means):
-        plt.text(
-            bar.get_x() + bar.get_width() / 2,
-            bar.get_height() + 0.01,
-            f"{value:.3f}",
-            ha="center",
-            va="bottom",
-        )
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    plt.tight_layout()
-    plt.savefig(out_path, dpi=200)
-    plt.close()
+    return pd.DataFrame(results)
 
 
 def main() -> None:
     args = parse_args()
-    runs_root = Path(args.runs_dir)
-    out_tables = Path(args.out_tables)
-    out_figs = Path(args.out_figs)
 
-    records = collect_eval_records(runs_root)
-    if not records:
-        print("[summarize_s0_results] No eval_summary.json files found.")
-        return
+    # Read evaluation results
+    df = pd.read_csv(args.eval_csv)
 
-    df = pd.DataFrame(records)
-    out_tables.mkdir(parents=True, exist_ok=True)
-    df.to_csv(out_tables / "s0_eval_all_runs.csv", index=False)
+    # Define metrics to include in the table
+    metrics = ["accuracy", "f1", "auroc", "brier", "ece", "fpr_at_tpr95"]
 
-    summary_df = build_summary(df)
-    summary_path = out_tables / "s0_eval_summary.csv"
-    summary_df.to_csv(summary_path, index=False)
-    print(f"[summarize_s0_results] Saved summary table to {summary_path}")
+    # Calculate statistics
+    summary_df = calculate_statistics(df, metrics)
 
-    plot_path = out_figs / "s0_auroc.png"
-    plot_auroc(df, plot_path)
-    print(f"[summarize_s0_results] Saved AUROC plot to {plot_path}")
+    # Create markdown table
+    markdown_table = "# S0 Model Performance Summary (IID/Test)\n\n"
+    markdown_table += "**Metrics: Mean ± Standard Deviation (3 seeds)**\n\n"
+
+    # Create table header
+    headers = ["Model", "Accuracy", "F1", "AUROC", "Brier", "ECE", "FPR@95"]
+    markdown_table += "| " + " | ".join(headers) + " |\n"
+    markdown_table += "|-" + "-|-" * (len(headers) - 1) + "-|\n"
+
+    # Add rows
+    for _, row in summary_df.iterrows():
+        table_row = [
+            row["Model"],
+            row["accuracy"],
+            row["f1"],
+            row["auroc"],
+            row["brier"],
+            row["ece"],
+            row["fpr_at_tpr95"],
+        ]
+        markdown_table += "| " + " | ".join(table_row) + " |\n"
+
+    # Add sample sizes
+    markdown_table += "\n**Sample size per model: 3 seeds**\n"
+    markdown_table += "**Total test samples: 2400**\n"
+
+    # Write to file
+    out_path = Path(args.out_table)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write(markdown_table)
+
+    print(f"[summarize_s0_results] Summary table saved to {out_path}")
+
+    # Also print to console
+    print("\n" + "=" * 80)
+    print("S0 MODEL PERFORMANCE SUMMARY")
+    print("=" * 80)
+    print(markdown_table)
 
 
 if __name__ == "__main__":
