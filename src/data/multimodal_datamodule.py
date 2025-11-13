@@ -5,7 +5,7 @@ Multimodal DataModule (S0 baseline, Sec. 4.3.4 & 4.6.1).
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import torch
@@ -23,6 +23,39 @@ log = get_logger(__name__)
 
 # 增加PIL图像大小限制，防止DecompressionBombWarning
 Image.MAX_IMAGE_PIXELS = 500_000_000  # 500MP
+
+
+def multimodal_collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Custom collate function to handle string fields (image_path, id) properly.
+    PyTorch's default collate_fn cannot stack strings.
+    """
+    # Initialize output dict
+    collated = {}
+
+    # Handle each field
+    for key in batch[0].keys():
+        values = [item[key] for item in batch]
+
+        if key in ("id", "image_path"):
+            # Keep strings as list
+            collated[key] = values
+        elif key == "html":
+            # Handle nested dict
+            collated[key] = {
+                "input_ids": torch.stack([item[key]["input_ids"] for item in batch]),
+                "attention_mask": torch.stack(
+                    [item[key]["attention_mask"] for item in batch]
+                ),
+            }
+        elif isinstance(values[0], torch.Tensor):
+            # Stack tensors
+            collated[key] = torch.stack(values)
+        else:
+            # Keep as list for other types
+            collated[key] = values
+
+    return collated
 
 
 class MultimodalDataset(Dataset):
@@ -113,6 +146,8 @@ class MultimodalDataset(Dataset):
 
         label = int(row.get("label", 0))
 
+        image_path_str = self._select_image_path(row)
+
         # 处理HTML编码，确保返回正确的格式
         if hasattr(html_encoded, "keys") and "input_ids" in html_encoded:
             # 来自tokenizer的BatchEncoding
@@ -132,6 +167,7 @@ class MultimodalDataset(Dataset):
             },
             "visual": image_tensor,
             "label": torch.tensor(label, dtype=torch.long),
+            "image_path": image_path_str,  # Added for C-Module OCR
         }
 
     @staticmethod
@@ -192,6 +228,39 @@ class MultimodalDataset(Dataset):
             path = self.cache_root / path
         return path if path.exists() else None
 
+    def _select_image_path(self, row: pd.Series) -> Optional[str]:
+        """
+        根据可用字段挑选一个存在的图像路径，供视觉 OCR 使用。
+        优先顺序（针对OCR优化，需要高分辨率原图）：
+            1. img_path (原始全尺寸图像 - 最适合OCR)
+            2. img_path_corrupt
+            3. img_path_full (预处理后的224x224图像 - 对OCR来说太小)
+            4. img_path_cached
+            5. image_path
+        """
+        # 优先检查 img_path（原始全尺寸图像，最适合OCR）
+        candidates = [
+            ("img_path", False, False),  # 原始图像优先用于OCR
+            ("img_path_corrupt", True, False),
+            ("img_path_full", False, False),  # 预处理图像作为备选
+            ("img_path_cached", False, True),
+            ("image_path", False, False),
+        ]
+        for field, prefer_corrupt, is_cached in candidates:
+            value = row.get(field)
+            if value is None or (isinstance(value, float) and pd.isna(value)):
+                continue
+            value_str = self._safe_string(value).strip()
+            if not value_str:
+                continue
+            if is_cached:
+                resolved = self._resolve_cached_path(value_str)
+            else:
+                resolved = self._resolve_image_path(value_str, prefer_corrupt)
+            if resolved and resolved.exists():
+                return str(resolved)
+        return None
+
     def _load_cached_html(self, row: pd.Series) -> Optional[torch.Tensor]:
         """
         加载缓存的HTML tokens。
@@ -209,34 +278,22 @@ class MultimodalDataset(Dataset):
         return None
 
     def _load_image(self, row: pd.Series) -> torch.Tensor:
-        img_path = row.get("img_path_corrupt")
-        prefer_corrupt = True
-        if pd.isna(img_path) or not str(img_path).strip():
-            img_path = row.get("img_path")
-            prefer_corrupt = False
-        if pd.isna(img_path) or not str(img_path).strip():
-            img_path = row.get("image_path")
-            prefer_corrupt = False
-
-        if pd.isna(img_path) or not img_path:
+        resolved = self._select_image_path(row)
+        if not resolved:
             img = Image.new("RGB", (224, 224))
             return self.visual_transform(img)
 
-        path = self._resolve_image_path(self._safe_string(img_path), prefer_corrupt)
-
         try:
+            path = Path(resolved)
             if path.exists():
                 img = Image.open(path)
-                # 性能优化：如果图像太大，立即resize（避免内存和速度问题）
                 width, height = img.size
                 total_pixels = width * height
                 max_pixels = 10_000_000  # 10MP阈值
                 if total_pixels > max_pixels:
-                    # 计算缩放比例，保持宽高比
                     scale = (max_pixels / total_pixels) ** 0.5
                     new_width = int(width * scale)
                     new_height = int(height * scale)
-                    # 使用thumbnail快速resize（原地操作，更高效）
                     img.thumbnail((new_width, new_height), Image.Resampling.LANCZOS)
                 img = img.convert("RGB")
             else:
@@ -244,7 +301,7 @@ class MultimodalDataset(Dataset):
                 img = Image.new("RGB", (224, 224))
         except Exception as exc:
             log.warning(
-                "Failed to load image %s (%s); using blank placeholder.", path, exc
+                "Failed to load image %s (%s); using blank placeholder.", resolved, exc
             )
             img = Image.new("RGB", (224, 224))
         return self.visual_transform(img)
@@ -477,6 +534,7 @@ class MultimodalDataModule(pl.LightningDataModule):
             "num_workers": self.num_workers,
             "pin_memory": self.pin_memory,
             "persistent_workers": self.persistent_workers,
+            "collate_fn": multimodal_collate_fn,  # Use custom collate for string fields
         }
         # prefetch_factor只在num_workers > 0时有效
         if self.num_workers > 0 and self.prefetch_factor is not None:
@@ -490,6 +548,7 @@ class MultimodalDataModule(pl.LightningDataModule):
             "num_workers": self.num_workers,
             "pin_memory": self.pin_memory,
             "persistent_workers": self.persistent_workers,
+            "collate_fn": multimodal_collate_fn,  # Use custom collate for string fields
         }
         # prefetch_factor只在num_workers > 0时有效
         if self.num_workers > 0 and self.prefetch_factor is not None:
@@ -503,6 +562,7 @@ class MultimodalDataModule(pl.LightningDataModule):
             "num_workers": self.num_workers,
             "pin_memory": self.pin_memory,
             "persistent_workers": self.persistent_workers,
+            "collate_fn": multimodal_collate_fn,  # Use custom collate for string fields
         }
         # prefetch_factor只在num_workers > 0时有效
         if self.num_workers > 0 and self.prefetch_factor is not None:

@@ -84,7 +84,7 @@ modules:
     model_name: sentence-transformers/all-MiniLM-L6-v2
     thresh: 0.60
     brand_lexicon_path: ${paths.assets}/brand_lexicon.txt
-    use_ocr: false
+    use_ocr: true
 
 metrics:
   consistency_thresh: 0.60

@@ -628,6 +628,7 @@ S2 阶段用于验证跨模态品牌一致性信号（C-Module）。两个推荐
 - `modules.use_cmodule=true` / `modules.use_umodule=false`，只启用 C-Module。
 - `metrics.consistency_thresh` 控制 `val/consistency/*` 与 `test/consistency/*` 日志。
 - `predictions_test.csv` 会多出 `c_mean` 与 `brand_url/html/vis`，方便做后续统计。
+- 默认启用视觉 OCR，需要主机安装 Tesseract OCR（pytesseract）才可生效；若缺失会自动退化为文件名 heuristics。
 
 生成分布图与报告：
 
@@ -644,6 +645,34 @@ python scripts/plot_s2_distributions.py --runs_dir workspace/runs \
 - `figures/s0_vis_similarity_hist.png`
 - `figures/s2_consistency_hist.png`
 - `results/consistency_report.json`（SUMMARY.md 会读取该文件，自动对比 OVL / KS / AUC）
+
+---
+
+## 🧪 S3 固定融合（U + C）
+
+S3 在 S0 LateAvg 基线之上，同时启用 S1 的 U-Module 与 S2 的 C-Module，并使用固定的融合系数（λ_c = 0.5）验证二者的协同作用。
+
+| 实验 | 用途 | 入口 |
+| --- | --- | --- |
+| Brand-OOD Fixed Fusion | 检查 Brand-OOD 下的协同收益 | `python scripts/train_hydra.py experiment=s3_brandood_fixed` |
+| IID Fixed Fusion | IID 场景对照实验 | `python scripts/train_hydra.py experiment=s3_iid_fixed` |
+
+关键说明：
+- 训练保持与 S0 相同（loss 仍基于 LateAvg），固定融合只在 `validation/test` 阶段启用，确保可与 S0/S1/S2 对比；
+- `modules.fusion_mode=fixed`，`modules.lambda_c=0.5`，并要求 `use_umodule=true`, `use_cmodule=true`;
+- `predictions_test.csv` 追加 `r_*`, `c_*`, `U_*`, `alpha_*` 列，可直接用于绘制 α 分布或协同分析；
+- `results/eval_summary.json` 会写入 `s3` 区块（AUROC/ECE/Brier、α 统计、协同增益），SUMMARY.md 自动列出洞察；
+- 若需要计算与 S1/S2 的协同改进，可在 `results/` 目录放置 `synergy_baselines.json` 提供参考值：
+- 同样默认启用视觉 OCR（Tesseract + pytesseract）。若主机未安装，将在日志中提示并退化为文件名/路径启发式。
+
+```json
+{
+  "baselines": {
+    "s1": {"auroc": 0.942},
+    "s2": {"auroc": 0.921}
+  }
+}
+```
 
 ---
 

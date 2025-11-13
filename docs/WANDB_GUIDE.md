@@ -145,6 +145,7 @@ python scripts/train_hydra.py -m logger=wandb \\
 - Learning rate
 - Gradient norms
 - Consistency (S2): `val/consistency/acs`, `val/consistency/mr@τ_s`, `test/consistency/acs`
+- Fixed Fusion (S3): `val/fusion/alpha_*`, `test/fusion/alpha_*`
 
 ### 2. 超参数对比
 

@@ -220,6 +220,12 @@ class ExperimentTracker:
                     f.write("\n## S2 一致性洞察\n")
                     for line in c_lines:
                         f.write(f"- {line}\n")
+            if self._fusion_enabled():
+                s3_lines = self._build_fusion_summary_lines()
+                if s3_lines:
+                    f.write("\n## S3 固定融合洞察\n")
+                    for line in s3_lines:
+                        f.write(f"- {line}\n")
 
         log.info(f"总结已保存: {summary_file}")
         return summary_file
@@ -247,6 +253,12 @@ class ExperimentTracker:
         if not modules_cfg:
             return False
         return bool(getattr(modules_cfg, "use_cmodule", False))
+
+    def _fusion_enabled(self) -> bool:
+        modules_cfg = getattr(self.cfg, "modules", None)
+        if not modules_cfg:
+            return False
+        return getattr(modules_cfg, "fusion_mode", "") == "fixed"
 
     def _build_umodule_summary_lines(self) -> List[str]:
         eval_summary = self._load_current_eval_summary()
@@ -328,6 +340,44 @@ class ExperimentTracker:
             lines.append(line)
         return lines
 
+    def _build_fusion_summary_lines(self) -> List[str]:
+        eval_summary = self._load_current_eval_summary()
+        s3 = eval_summary.get("s3")
+        if not s3:
+            return []
+        lines = [
+            "S3 固定融合 (U+C) - "
+            f"AUROC={self._format_metric(s3.get('auroc'))}, "
+            f"ECE={self._format_metric(s3.get('ece'))}, "
+            f"Brier={self._format_metric(s3.get('brier'))}"
+        ]
+        alpha_stats = s3.get("alpha_stats", {})
+        mean_alpha = self._format_alpha_dict(alpha_stats.get("mean_alpha"))
+        var_alpha = self._format_alpha_dict(alpha_stats.get("var_alpha"))
+        if mean_alpha:
+            lines.append(f"α 均值: {mean_alpha}")
+        if var_alpha:
+            lines.append(f"α 方差: {var_alpha}")
+        synergy = s3.get("synergy_metrics")
+        if synergy:
+            if (
+                "delta_vs_best" in synergy
+                and isinstance(synergy.get("best_baseline"), dict)
+                and synergy.get("best_baseline")
+            ):
+                best_label = next(iter(synergy["best_baseline"].keys()))
+                best_value = synergy["best_baseline"][best_label]
+                lines.append(
+                    "协同增益: Δ"
+                    f"{synergy.get('metric', 'auroc').upper()}="
+                    f"{self._format_metric(synergy.get('delta_vs_best'))} "
+                    f"(S3={self._format_metric(synergy.get('s3'))}, "
+                    f"{best_label}={self._format_metric(best_value)})"
+                )
+            elif synergy.get("status"):
+                lines.append(f"协同增益: {synergy['status']}")
+        return lines
+
     def _load_current_eval_summary(self) -> Dict[str, Any]:
         eval_path = self.results_dir / "eval_summary.json"
         if eval_path.exists():
@@ -388,6 +438,16 @@ class ExperimentTracker:
             return f"{float(value):.{precision}f}"
         except (TypeError, ValueError):
             return "N/A"
+
+    @staticmethod
+    def _format_alpha_dict(values: Optional[Dict[str, float]]) -> str:
+        if not values:
+            return ""
+        formatted = [
+            f"{key}={float(val):.3f}" if not isinstance(val, str) else f"{key}={val}"
+            for key, val in values.items()
+        ]
+        return ", ".join(formatted)
 
     def _consistency_thresh(self) -> float:
         metrics_cfg = getattr(self.cfg, "metrics", None)

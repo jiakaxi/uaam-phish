@@ -76,6 +76,7 @@ class ArtifactsWriter:
         extra_cols: Dict[str, List[torch.Tensor]] = defaultdict(list)
         cmodule_numeric: Dict[str, List[torch.Tensor]] = defaultdict(list)
         cmodule_strings: Dict[str, List[List[Any]]] = defaultdict(list)
+        fusion_cols: Dict[str, List[torch.Tensor]] = defaultdict(list)
 
         for batch_preds in preds_list:
             batch_ids = self._to_list(batch_preds.get("id"))
@@ -121,6 +122,39 @@ class ArtifactsWriter:
                     seq = self._ensure_sequence(value, batch_true.shape[0])
                     cmodule_strings[key].append(seq)
 
+            fusion = batch_preds.get("fusion") or {}
+            # Define expected fusion columns (will be filled with NaN if missing)
+            expected_fusion_cols = [
+                "U_url",
+                "U_html",
+                "U_visual",
+                "alpha_url",
+                "alpha_html",
+                "alpha_visual",
+            ]
+
+            for col_name in expected_fusion_cols:
+                if col_name in fusion:
+                    value = fusion[col_name]
+                    # Skip non-numeric fields
+                    if isinstance(value, (str, bool)):
+                        tensor = torch.full(
+                            (batch_true.shape[0],), float("nan"), dtype=torch.float32
+                        )
+                    else:
+                        tensor = self._ensure_tensor(value).view(-1).to(torch.float32)
+                        if tensor.numel() != batch_true.shape[0]:
+                            raise ValueError(
+                                f"Fusion column '{col_name}' length {tensor.numel()} "
+                                f"!= batch size {batch_true.shape[0]}"
+                            )
+                else:
+                    # Fill missing columns with NaN
+                    tensor = torch.full(
+                        (batch_true.shape[0],), float("nan"), dtype=torch.float32
+                    )
+                fusion_cols[col_name].append(tensor)
+
         y_true = torch.cat(y_true_chunks).view(-1).cpu().numpy()
         logits = torch.cat(logits_chunks).view(-1).cpu().numpy()
         probs = torch.cat(prob_chunks).view(-1).cpu().numpy()
@@ -142,6 +176,8 @@ class ArtifactsWriter:
             for block in blocks:
                 flattened.extend(block)
             data[key] = flattened
+        for key, tensors in fusion_cols.items():
+            data[key] = torch.cat(tensors).view(-1).cpu().numpy()
 
         return pd.DataFrame(data)
 

@@ -6,12 +6,12 @@ defaults:
   - override /logger: wandb
 
 run:
-  name: s2_brandood_consistency
+  name: s3_iid_fixed
   seed: 42
-  tags: ["s2", "brandood", "consistency"]
-  notes: "S2 Brand-OOD: Consistency module (C-Module only, no U-Module)."
+  tags: ["s3", "iid", "fixed"]
+  notes: "S3 IID: U-Module + C-Module fixed fusion (λ_c=0.5)"
 
-protocol: brand_ood
+protocol: presplit
 
 system:
   _target_: src.systems.s0_late_avg_system.S0LateAverageSystem
@@ -37,10 +37,9 @@ system:
 datamodule:
   _target_: src.data.multimodal_datamodule.MultimodalDataModule
   _recursive_: false
-  train_csv: workspace/data/splits/brandood/train_cached.csv
-  val_csv: workspace/data/splits/brandood/val_cached.csv
-  test_csv: workspace/data/splits/brandood/test_id_cached.csv
-  test_ood_csv: workspace/data/splits/brandood/test_ood_cached.csv
+  train_csv: workspace/data/splits/iid/train_cached.csv
+  val_csv: workspace/data/splits/iid/val_cached.csv
+  test_csv: workspace/data/splits/iid/test_cached.csv
   image_dir: data/processed/screenshots
   corrupt_root: workspace/data/corrupt
   batch_size: 32
@@ -53,9 +52,9 @@ datamodule:
   url_vocab_size: 128
   html_max_len: 256
   preload_html: false
-  preprocessed_train_dir: workspace/data/preprocessed/brandood/train
-  preprocessed_val_dir: workspace/data/preprocessed/brandood/val
-  preprocessed_test_dir: workspace/data/preprocessed/brandood/test_id
+  preprocessed_train_dir: workspace/data/preprocessed/iid/train
+  preprocessed_val_dir: workspace/data/preprocessed/iid/val
+  preprocessed_test_dir: workspace/data/preprocessed/iid/test
 
 paths:
   output_dir: workspace/runs/${run.name}/seed_${run.seed}
@@ -78,9 +77,19 @@ eval:
   monitor: val/loss
   patience: 5
 
+umodule:
+  enabled: true
+  mc_iters: 10
+  dropout: 0.3
+  lambda_u: 1.0
+  temperature_init: 1.0
+  learnable: false
+
 modules:
-  use_umodule: false
+  use_umodule: true
   use_cmodule: true
+  fusion_mode: fixed
+  lambda_c: 0.5
   c_module:
     model_name: sentence-transformers/all-MiniLM-L6-v2
     thresh: 0.60

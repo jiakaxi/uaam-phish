@@ -8,17 +8,28 @@ import math
 import re
 from collections import OrderedDict
 from itertools import combinations
+import os
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pandas as pd
 import tldextract
+from PIL import Image
 
 try:
     from bs4 import BeautifulSoup
 except ImportError:  # pragma: no cover - optional dependency
     BeautifulSoup = None
+
+try:
+    import pytesseract
+except ImportError:  # pragma: no cover - optional dependency
+    pytesseract = None
+else:
+    tess_cmd = os.environ.get("TESSERACT_CMD")
+    if tess_cmd:
+        pytesseract.pytesseract.tesseract_cmd = tess_cmd
 
 try:
     from sentence_transformers import SentenceTransformer
@@ -349,10 +360,125 @@ class CModule:
     def _brand_from_visual(
         self, image_path: Optional[str]
     ) -> Tuple[Optional[str], Dict[str, Any]]:
-        meta = {"method": "ocr_stub", "reason": "ocr_disabled"}
-        if self.use_ocr and image_path:
-            meta["reason"] = "ocr_not_implemented"
+        meta: Dict[str, Any] = {"method": "ocr_stub"}
+        # CRITICAL DEBUG
+        import sys
+
+        print(
+            f"[C-MODULE DEBUG] _brand_from_visual called with: {image_path}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+        if not self.use_ocr:
+            meta["reason"] = "ocr_disabled"
+            print("[C-MODULE DEBUG] OCR disabled!", file=sys.stderr, flush=True)
+            return None, meta
+        meta["method"] = "ocr"
+        if pytesseract is None:
+            meta["reason"] = "pytesseract_missing"
+            print("[C-MODULE DEBUG] pytesseract None!", file=sys.stderr, flush=True)
+            return None, meta
+        if not image_path:
+            meta["reason"] = "missing_image_path"
+            print("[C-MODULE DEBUG] No image_path!", file=sys.stderr, flush=True)
+            return None, meta
+        path = Path(image_path)
+        if not path.exists():
+            meta["reason"] = "missing_image"
+            print(
+                f"[C-MODULE DEBUG] File not found: {path}", file=sys.stderr, flush=True
+            )
+            return None, meta
+        print(f"[C-MODULE DEBUG] Calling OCR on {path}", file=sys.stderr, flush=True)
+        try:
+            text = self._extract_text_from_image(path)
+            print(
+                f"[C-MODULE DEBUG] OCR extracted text (first 200 chars): {text[:200] if text else '(empty)'}",
+                file=sys.stderr,
+                flush=True,
+            )
+        except RuntimeError as exc:
+            print(f"[C-MODULE DEBUG] OCR failed: {exc}", file=sys.stderr, flush=True)
+            meta["reason"] = str(exc)
+            brand = self._brand_from_filename(path)
+            if brand:
+                meta["method"] = "filename"
+                meta["raw"] = path.stem
+                return brand, meta
+            return None, meta
+
+        if not text:
+            print(
+                "[C-MODULE DEBUG] OCR returned empty text", file=sys.stderr, flush=True
+            )
+            meta["reason"] = "ocr_empty"
+            brand = self._brand_from_filename(path)
+            if brand:
+                meta["method"] = "filename"
+                meta["raw"] = path.stem
+                return brand, meta
+            return None, meta
+
+        meta["raw"] = text[:2000]
+        # Try lexicon-based matching first
+        brand = self._scan_lexicon(text)
+        if not brand:
+            brand = self._match_brand_from_tokens(text)
+
+        # If lexicon fails, use token-based fallback (like HTML does)
+        if not brand:
+            brand = self._pick_major_token(text)
+            if brand:
+                meta["method"] = "major_token"
+
+        if brand:
+            return brand, meta
+
+        # Final fallback: try filename
+        fallback = self._brand_from_filename(path)
+        if fallback:
+            meta["method"] = "filename"
+            meta["raw"] = path.stem
+            return fallback, meta
+
+        meta["reason"] = "no_brand_signal"
         return None, meta
+
+    def _extract_text_from_image(self, path: Path) -> str:
+        if pytesseract is None:
+            raise RuntimeError("pytesseract_missing")
+        try:
+            with Image.open(path) as img:
+                img = img.convert("L")
+                text = pytesseract.image_to_string(img)
+        except (
+            Exception
+        ) as exc:  # pragma: no cover - OCR failures are environment-specific
+            raise RuntimeError(f"ocr_failed:{exc}") from exc
+        return text.strip()
+
+    def _match_brand_from_tokens(self, text: str) -> Optional[str]:
+        tokens = [
+            token for token in re.split(r"[\W_]+", text) if token and len(token) > 2
+        ]
+        for token in tokens:
+            brand = self._match_brand(token)
+            if brand:
+                return brand
+        return None
+
+    def _brand_from_filename(self, path: Path) -> Optional[str]:
+        filename = path.stem.replace("_", " ")
+        brand = self._match_brand(filename)
+        if brand:
+            return brand
+        tokens = re.split(r"[\W_]+", filename)
+        for token in tokens:
+            brand = self._match_brand(token)
+            if brand:
+                return brand
+        return None
 
     # ------------------------------------------------------------------ #
     def _load_html_text(self, html_path: Optional[str]) -> str:
