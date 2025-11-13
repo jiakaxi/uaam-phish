@@ -42,7 +42,7 @@ def _local_dropout_mode(module: nn.Module) -> Iterable[nn.Dropout]:
 
 
 def _normalize_logits(
-    output: Dict[str, torch.Tensor] | torch.Tensor
+    output: Dict[str, torch.Tensor] | torch.Tensor,
 ) -> Dict[str, torch.Tensor]:
     """Force logits into dict form for downstream aggregation."""
     if isinstance(output, dict):

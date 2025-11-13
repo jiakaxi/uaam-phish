@@ -615,6 +615,38 @@ make test-url
 
 ---
 
+## 🧪 S2 Consistency 实验
+
+S2 阶段用于验证跨模态品牌一致性信号（C-Module）。两个推荐配置：
+
+| 实验 | 用途 | 入口 |
+| --- | --- | --- |
+| Brand-OOD Consistency | 针对品牌迁移场景观测一致性崩溃 | `python scripts/train_hydra.py experiment=s2_brandood_consistency` |
+| IID Consistency | 对照实验，验证在 IID 场景下合法站点 ACS 更高 | `python scripts/train_hydra.py experiment=s2_iid_consistency` |
+
+特性：
+- `modules.use_cmodule=true` / `modules.use_umodule=false`，只启用 C-Module。
+- `metrics.consistency_thresh` 控制 `val/consistency/*` 与 `test/consistency/*` 日志。
+- `predictions_test.csv` 会多出 `c_mean` 与 `brand_url/html/vis`，方便做后续统计。
+
+生成分布图与报告：
+
+```bash
+# 默认扫描 workspace/runs 下最新的 s0_* / s2_* 目录
+python scripts/plot_s2_distributions.py --runs_dir workspace/runs
+
+# 自定义输出位置
+python scripts/plot_s2_distributions.py --runs_dir workspace/runs \
+  --figures-dir figures/s2 --results-dir results/s2
+```
+
+脚本会输出：
+- `figures/s0_vis_similarity_hist.png`
+- `figures/s2_consistency_hist.png`
+- `results/consistency_report.json`（SUMMARY.md 会读取该文件，自动对比 OVL / KS / AUC）
+
+---
+
 ## 📚 相关文档
 
 - [数据 Schema](DATA_SCHEMA.md)

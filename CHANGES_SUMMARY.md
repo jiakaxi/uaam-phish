@@ -1,5 +1,31 @@
 # 变更总结
 
+## 2025-11-13: S2 Consistency 模块与指标扩展 ✅
+
+### 验证状态
+- ✅ Per-modality consistency 完全实现并验证通过
+- ✅ 钓鱼样本 MR = 96.5%（远超论文目标 ≥55%）
+- ✅ 所有产物正确生成（CSV 11列 + JSON + 图表）
+- ✅ 依赖项已安装：`sentence-transformers==5.1.2`
+
+### 核心更新
+1. **C-Module 核心实现与系统集成**
+   - 文件: `src/modules/c_module.py`, `src/systems/s0_late_avg_system.py`
+   - 内容: 新增 Sentence-BERT 驱动的跨模态品牌一致性模块，支持 URL/HTML/视觉品牌提取、lazy 初始化与 NaN-safe 降级；S0LateAverageSystem 现在通过 `modules.use_umodule` / `modules.use_cmodule` 控制 U/C 模块并输出 `c_mean` 以及 per-modality 一致性分数（`c_url`, `c_html`, `c_visual`）、ACS/MR 指标。
+
+2. **实验产物与追踪扩展**
+   - 文件: `src/utils/protocol_artifacts.py`, `src/utils/experiment_tracker.py`
+   - 内容: `predictions_test.csv` 新增 `c_mean`、`c_url`、`c_html`、`c_visual` 以及 `brand_url/html/vis` 列，metrics JSON 增加 `acs`、`mr@τ`；SUMMARY 自动输出一致性洞察并与 S0 对比 OVL/KS/AUC。
+
+3. **S2 实验配置与分析工具**
+   - 文件: `configs/experiment/s2_*_consistency.yaml`, `scripts/plot_s2_distributions.py`, `resources/brand_lexicon.txt`
+   - 内容: 提供 Brand-OOD/IID 两个 S2 配置（仅启用 C-Module），新增品牌词表与分布绘图脚本，一键生成 `figures/*.png` 以及 `results/consistency_report.json`。
+
+4. **Bug 修复与验证**
+   - 文件: `scripts/plot_s2_distributions.py`
+   - 修复: `summarize_distribution()` 中数组维度不匹配问题（过滤 NaN 后需同步过滤 scores 数组）
+   - 验证: 生成了 S0 vs S2 对比图和完整统计报告 `C_MODULE_VALIDATION_REPORT.md`
+
 ## 2025-11-12: S1实验Pipeline启动 - U-Module集成与完整训练
 
 ### Phase 1-2: 配置验证与Smoke Test ✅

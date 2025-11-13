@@ -144,6 +144,7 @@ python scripts/train_hydra.py -m logger=wandb \\
 - F1, AUROC, FPR
 - Learning rate
 - Gradient norms
+- Consistency (S2): `val/consistency/acs`, `val/consistency/mr@τ_s`, `test/consistency/acs`
 
 ### 2. 超参数对比
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 import json
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
 # Set non-interactive backend to avoid Tkinter thread conflicts
 import matplotlib
@@ -15,6 +15,7 @@ import matplotlib
 matplotlib.use("Agg")  # Use non-interactive backend
 
 import torch
+import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.metrics import (
@@ -73,6 +74,8 @@ class ArtifactsWriter:
         logits_chunks: List[torch.Tensor] = []
         prob_chunks: List[torch.Tensor] = []
         extra_cols: Dict[str, List[torch.Tensor]] = defaultdict(list)
+        cmodule_numeric: Dict[str, List[torch.Tensor]] = defaultdict(list)
+        cmodule_strings: Dict[str, List[List[Any]]] = defaultdict(list)
 
         for batch_preds in preds_list:
             batch_ids = self._to_list(batch_preds.get("id"))
@@ -104,6 +107,20 @@ class ArtifactsWriter:
                     )
                 extra_cols[key].append(tensor)
 
+            cmodule = batch_preds.get("cmodule") or {}
+            for key, value in cmodule.items():
+                if isinstance(value, torch.Tensor):
+                    tensor = self._ensure_tensor(value).view(-1).to(torch.float32)
+                    if tensor.numel() != batch_true.shape[0]:
+                        raise ValueError(
+                            f"C-Module column '{key}' length {tensor.numel()} "
+                            f"!= batch size {batch_true.shape[0]}"
+                        )
+                    cmodule_numeric[key].append(tensor)
+                else:
+                    seq = self._ensure_sequence(value, batch_true.shape[0])
+                    cmodule_strings[key].append(seq)
+
         y_true = torch.cat(y_true_chunks).view(-1).cpu().numpy()
         logits = torch.cat(logits_chunks).view(-1).cpu().numpy()
         probs = torch.cat(prob_chunks).view(-1).cpu().numpy()
@@ -118,6 +135,13 @@ class ArtifactsWriter:
         }
         for key, tensors in extra_cols.items():
             data[key] = torch.cat(tensors).view(-1).cpu().numpy()
+        for key, tensors in cmodule_numeric.items():
+            data[key] = torch.cat(tensors).view(-1).cpu().numpy()
+        for key, blocks in cmodule_strings.items():
+            flattened: List[Any] = []
+            for block in blocks:
+                flattened.extend(block)
+            data[key] = flattened
 
         return pd.DataFrame(data)
 
@@ -153,6 +177,7 @@ class ArtifactsWriter:
         except Exception as exc:
             log.warning("Failed to compute ECE: %s", exc)
         metrics["artifacts"] = self._stage_artifact_paths(stage)
+        self._append_consistency_metrics(metrics, df)
         return metrics
 
     def _write_metrics(self, metrics: Dict[str, float], stage: str) -> None:
@@ -266,6 +291,18 @@ class ArtifactsWriter:
         raise TypeError(f"Unsupported value type for tensor conversion: {type(value)}")
 
     @staticmethod
+    def _ensure_sequence(value, expected_len: int) -> List[Any]:
+        if isinstance(value, (list, tuple)):
+            seq = list(value)
+        else:
+            seq = [value]
+        if len(seq) != expected_len:
+            raise ValueError(
+                f"Sequence length {len(seq)} does not match batch size {expected_len}"
+            )
+        return seq
+
+    @staticmethod
     def _to_list(value) -> List:
         if value is None:
             return []
@@ -280,6 +317,58 @@ class ArtifactsWriter:
         if metrics_cfg and hasattr(metrics_cfg, "ece_bins"):
             return int(getattr(metrics_cfg, "ece_bins"))
         return 15
+
+    def _append_consistency_metrics(
+        self, metrics: Dict[str, float], df: pd.DataFrame
+    ) -> None:
+        if "c_mean" not in df.columns:
+            return
+        scores = df["c_mean"].to_numpy(dtype=np.float32)
+        if scores.size == 0:
+            return
+        valid = np.isfinite(scores)
+        if not valid.any():
+            return
+        thresh = self._get_consistency_thresh()
+        acs = float(np.nanmean(scores))
+        mismatch = float(np.mean((scores[valid] < thresh).astype(np.float32)))
+        metrics["acs"] = acs
+        metrics[f"mr@{thresh:.2f}"] = mismatch
+        metrics["consistency"] = {
+            "thresh": float(thresh),
+            "bins_used": int(self._get_consistency_bins(int(valid.sum()))),
+            "n_samples": int(valid.sum()),
+        }
+
+    def _get_consistency_thresh(self) -> float:
+        module_thresh = getattr(self.module, "c_module_threshold", None)
+        if module_thresh is not None:
+            try:
+                return float(module_thresh)
+            except (TypeError, ValueError):
+                pass
+        metrics_cfg = getattr(self.module, "metrics_cfg", None)
+        if metrics_cfg and hasattr(metrics_cfg, "consistency_thresh"):
+            return float(getattr(metrics_cfg, "consistency_thresh"))
+        cmodule_thresh = getattr(
+            getattr(self.module, "c_module_cfg", None), "thresh", None
+        )
+        if cmodule_thresh is not None:
+            try:
+                return float(cmodule_thresh)
+            except (TypeError, ValueError):
+                pass
+        return 0.6
+
+    def _get_consistency_bins(self, n_samples: Optional[int] = None) -> int:
+        metrics_cfg = getattr(self.module, "metrics_cfg", None)
+        if metrics_cfg and hasattr(metrics_cfg, "consistency_bins"):
+            bins = int(getattr(metrics_cfg, "consistency_bins"))
+        else:
+            bins = 30
+        if n_samples is not None and n_samples > 0:
+            bins = min(bins, max(3, n_samples))
+        return bins
 
     def _has_umodule(self) -> bool:
         return bool(getattr(self.module, "umodule_enabled", False))

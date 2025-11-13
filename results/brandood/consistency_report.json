@@ -1,0 +1,90 @@
+{
+  "generated_at": "2025-11-13T08:17:09.517683Z",
+  "runs": {
+    "s0": {
+      "path": "experiments\\s0_brandood_lateavg_20251111_094525",
+      "column": "prob",
+      "ovl": 0.038461538461538464,
+      "ks": 0.9615384615384616,
+      "auc": 0.9807692307692308,
+      "mean_legit": 0.814453125,
+      "ci_legit": [
+        0.5560546772400512,
+        1.0728515727599488
+      ],
+      "mean_phish": 0.98291015625,
+      "ci_phish": [
+        0.977808321151003,
+        0.988011991348997
+      ]
+    },
+    "s2": {
+      "path": "experiments\\s2_brandood_consistency_20251113_094012",
+      "column": "c_mean",
+      "ovl": 0.0,
+      "ks": 1.0,
+      "auc": 0.0,
+      "mean_legit": 1.0,
+      "ci_legit": [
+        0.999999917392177,
+        1.000000082607823
+      ],
+      "mean_phish": 0.22527222335338593,
+      "ci_phish": [
+        0.19748557394742966,
+        0.2530588727593422
+      ],
+      "thresh": 0.6,
+      "acs": 0.28265947103500366,
+      "mr_overall": 0.9259259259259259,
+      "mr_phish": 1.0,
+      "fpr_legit": 0.0
+    }
+  },
+  "meta": {
+    "thresh": 0.6,
+    "figures": {
+      "s0": "figures\\brandood\\s0_vis_similarity_hist.png",
+      "s2": "figures\\brandood\\s2_consistency_hist.png"
+    }
+  },
+  "baseline": {
+    "path": "experiments\\s0_brandood_lateavg_20251111_094525",
+    "column": "prob",
+    "ovl": 0.038461538461538464,
+    "ks": 0.9615384615384616,
+    "auc": 0.9807692307692308,
+    "mean_legit": 0.814453125,
+    "ci_legit": [
+      0.5560546772400512,
+      1.0728515727599488
+    ],
+    "mean_phish": 0.98291015625,
+    "ci_phish": [
+      0.977808321151003,
+      0.988011991348997
+    ]
+  },
+  "current": {
+    "path": "experiments\\s2_brandood_consistency_20251113_094012",
+    "column": "c_mean",
+    "ovl": 0.0,
+    "ks": 1.0,
+    "auc": 0.0,
+    "mean_legit": 1.0,
+    "ci_legit": [
+      0.999999917392177,
+      1.000000082607823
+    ],
+    "mean_phish": 0.22527222335338593,
+    "ci_phish": [
+      0.19748557394742966,
+      0.2530588727593422
+    ],
+    "thresh": 0.6,
+    "acs": 0.28265947103500366,
+    "mr_overall": 0.9259259259259259,
+    "mr_phish": 1.0,
+    "fpr_legit": 0.0
+  }
+}

@@ -8,8 +8,11 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Dict, Any, List, Optional
+
+import numpy as np
 import pandas as pd
 from omegaconf import OmegaConf, DictConfig
+from sklearn.metrics import roc_auc_score
 
 from src.utils.logging import get_logger
 
@@ -211,6 +214,12 @@ class ExperimentTracker:
                     f.write("\n## S1 可靠性洞察\n")
                     for line in lines:
                         f.write(f"- {line}\n")
+            if self._cmodule_enabled():
+                c_lines = self._build_cmodule_summary_lines()
+                if c_lines:
+                    f.write("\n## S2 一致性洞察\n")
+                    for line in c_lines:
+                        f.write(f"- {line}\n")
 
         log.info(f"总结已保存: {summary_file}")
         return summary_file
@@ -227,8 +236,17 @@ class ExperimentTracker:
 
     # ------------------------------------------------------------------ #
     def _umodule_enabled(self) -> bool:
+        modules_cfg = getattr(self.cfg, "modules", None)
+        if modules_cfg and hasattr(modules_cfg, "use_umodule"):
+            return bool(getattr(modules_cfg, "use_umodule"))
         umodule_cfg = getattr(self.cfg, "umodule", None)
         return bool(umodule_cfg and getattr(umodule_cfg, "enabled", False))
+
+    def _cmodule_enabled(self) -> bool:
+        modules_cfg = getattr(self.cfg, "modules", None)
+        if not modules_cfg:
+            return False
+        return bool(getattr(modules_cfg, "use_cmodule", False))
 
     def _build_umodule_summary_lines(self) -> List[str]:
         eval_summary = self._load_current_eval_summary()
@@ -263,6 +281,52 @@ class ExperimentTracker:
             f"{self._format_metric(reduction, 2) if reduction is not None else 'N/A'}"
         )
         return [line1, line2, line3]
+
+    def _build_cmodule_summary_lines(self) -> List[str]:
+        preds_path = self.artifacts_dir / "predictions_test.csv"
+        if not preds_path.exists():
+            return []
+        try:
+            df = pd.read_csv(preds_path)
+        except Exception as exc:
+            log.warning("加载一致性预测失败: %s", exc)
+            return []
+        if "c_mean" not in df.columns:
+            return []
+        df_valid = df[np.isfinite(df["c_mean"])]
+        if df_valid.empty:
+            return []
+        thresh = self._consistency_thresh()
+        acs = float(df_valid["c_mean"].mean())
+        mismatch = float((df_valid["c_mean"] < thresh).mean())
+        lines = [
+            f"Consistency 模块 (test)：ACS={acs:.4f}，MR@{thresh:.2f}={mismatch:.4f}。"
+        ]
+        separation = self._compute_consistency_separation(df_valid)
+        if separation:
+            line = (
+                "合法 vs 钓鱼分布分离度："
+                f"OVL={separation['ovl']:.3f}，"
+                f"KS={separation['ks']:.3f}，"
+                f"AUC={separation['auc']:.3f}"
+            )
+            baseline, _ = self._load_consistency_report_entries()
+            if baseline:
+                delta_ovl = separation["ovl"] - float(
+                    baseline.get("ovl", separation["ovl"])
+                )
+                delta_ks = separation["ks"] - float(
+                    baseline.get("ks", separation["ks"])
+                )
+                delta_auc = separation["auc"] - float(
+                    baseline.get("auc", separation["auc"])
+                )
+                line += (
+                    f"（对比 S0：ΔOVL={delta_ovl:+.3f}, "
+                    f"ΔKS={delta_ks:+.3f}, ΔAUC={delta_auc:+.3f}）"
+                )
+            lines.append(line)
+        return lines
 
     def _load_current_eval_summary(self) -> Dict[str, Any]:
         eval_path = self.results_dir / "eval_summary.json"
@@ -324,3 +388,93 @@ class ExperimentTracker:
             return f"{float(value):.{precision}f}"
         except (TypeError, ValueError):
             return "N/A"
+
+    def _consistency_thresh(self) -> float:
+        metrics_cfg = getattr(self.cfg, "metrics", None)
+        if metrics_cfg and hasattr(metrics_cfg, "consistency_thresh"):
+            return float(getattr(metrics_cfg, "consistency_thresh"))
+        modules_cfg = getattr(self.cfg, "modules", None)
+        if modules_cfg:
+            c_cfg = getattr(modules_cfg, "c_module", None)
+            if c_cfg and hasattr(c_cfg, "thresh"):
+                return float(getattr(c_cfg, "thresh"))
+        return 0.6
+
+    def _compute_consistency_separation(
+        self, df: pd.DataFrame
+    ) -> Optional[Dict[str, float]]:
+        if "y_true" not in df.columns:
+            return None
+        legit = df[df["y_true"] == 0]["c_mean"].dropna().to_numpy()
+        phish = df[df["y_true"] == 1]["c_mean"].dropna().to_numpy()
+        if min(len(legit), len(phish)) < 5:
+            return None
+        bins = self._consistency_bins_from_samples(len(legit), len(phish))
+        ovl = self._overlap_coefficient(legit, phish, bins)
+        ks = self._ks_statistic(legit, phish)
+        try:
+            auc = float(roc_auc_score(df["y_true"], df["c_mean"]))
+        except ValueError:
+            auc = float("nan")
+        return {"ovl": ovl, "ks": ks, "auc": auc}
+
+    @staticmethod
+    def _consistency_bins_from_samples(*counts: int) -> int:
+        base = max(counts)
+        if base <= 0:
+            return 10
+        return max(10, min(60, base // 4))
+
+    @staticmethod
+    def _overlap_coefficient(a: np.ndarray, b: np.ndarray, bins: int) -> float:
+        lo = float(min(a.min(), b.min()))
+        hi = float(max(a.max(), b.max()))
+        if hi == lo:
+            return 1.0
+        hist_a, edges = np.histogram(a, bins=bins, range=(lo, hi), density=True)
+        hist_b, _ = np.histogram(b, bins=bins, range=(lo, hi), density=True)
+        overlap = np.minimum(hist_a, hist_b).sum() * (edges[1] - edges[0])
+        return float(np.clip(overlap, 0.0, 1.0))
+
+    @staticmethod
+    def _ks_statistic(a: np.ndarray, b: np.ndarray) -> float:
+        a_sorted = np.sort(a)
+        b_sorted = np.sort(b)
+        data = np.sort(np.concatenate([a_sorted, b_sorted]))
+        cdf_a = np.searchsorted(a_sorted, data, side="right") / a_sorted.size
+        cdf_b = np.searchsorted(b_sorted, data, side="right") / b_sorted.size
+        return float(np.max(np.abs(cdf_a - cdf_b)))
+
+    def _load_consistency_report_entries(
+        self,
+    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        report = self._load_consistency_report()
+        if not report:
+            return None, None
+        runs = report.get("runs", {})
+        baseline = (
+            report.get("baseline")
+            or runs.get("baseline")
+            or report.get("s0")
+            or runs.get("s0")
+        )
+        current = (
+            report.get("current")
+            or runs.get("current")
+            or report.get("s2")
+            or runs.get("s2")
+        )
+        return (
+            baseline if isinstance(baseline, dict) else None,
+            current if isinstance(current, dict) else None,
+        )
+
+    def _load_consistency_report(self) -> Dict[str, Any]:
+        report_path = self.results_dir / "consistency_report.json"
+        if not report_path.exists():
+            return {}
+        try:
+            with open(report_path, "r", encoding="utf-8") as handle:
+                return json.load(handle)
+        except Exception:
+            return {}

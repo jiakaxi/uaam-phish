@@ -5,6 +5,7 @@ Late-fusion (uniform average) multimodal baseline for S0 experiments.
 from __future__ import annotations
 
 import json
+import math
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -19,6 +20,7 @@ from torchmetrics import Accuracy, AUROC, F1Score
 from src.models.url_encoder import URLEncoder
 from src.models.html_encoder import HTMLEncoder
 from src.models.visual_encoder import VisualEncoder
+from src.modules.c_module import CModule
 from src.modules.u_module import (
     UModule,
     mc_dropout_predict,
@@ -118,10 +120,9 @@ class S0LateAverageSystem(pl.LightningModule):
 
         self.modalities = ("url", "html", "visual")
         self.metrics_cfg = getattr(cfg, "metrics", None)
+        self.modules_cfg = getattr(cfg, "modules", None)
         self.umodule_cfg = getattr(cfg, "umodule", None)
-        self.umodule_enabled = bool(
-            getattr(self.umodule_cfg, "enabled", False) if self.umodule_cfg else False
-        )
+        self.umodule_enabled = self._should_enable_umodule()
         self.u_module: Optional[UModule] = None
         if self.umodule_enabled:
             self.u_module = UModule(
@@ -130,6 +131,31 @@ class S0LateAverageSystem(pl.LightningModule):
                 init_temperature=getattr(self.umodule_cfg, "temperature_init", 1.0),
                 lambda_u=getattr(self.umodule_cfg, "lambda_u", 1.0),
                 learnable=getattr(self.umodule_cfg, "learnable", False),
+            )
+        self.c_module: Optional[CModule] = None
+        self.c_module_cfg = (
+            getattr(self.modules_cfg, "c_module", None) if self.modules_cfg else None
+        )
+        self.cmodule_enabled = bool(
+            getattr(self.modules_cfg, "use_cmodule", False)
+            if self.modules_cfg
+            else False
+        )
+        self.c_module_threshold = self._resolve_consistency_thresh()
+        if self.cmodule_enabled:
+            metadata_sources = self._gather_metadata_sources()
+            self.c_module = CModule(
+                model_name=getattr(
+                    self.c_module_cfg,
+                    "model_name",
+                    "sentence-transformers/all-MiniLM-L6-v2",
+                ),
+                thresh=self.c_module_threshold,
+                brand_lexicon_path=getattr(
+                    self.c_module_cfg, "brand_lexicon_path", None
+                ),
+                use_ocr=bool(getattr(self.c_module_cfg, "use_ocr", False)),
+                metadata_sources=metadata_sources,
             )
 
         self._dropout_layers: list[_DropoutNd] = []
@@ -164,6 +190,9 @@ class S0LateAverageSystem(pl.LightningModule):
             "html": "r_html",
             "visual": "r_img",
         }
+        self._consistency_scores: Dict[str, List[float]] = {
+            stage: [] for stage in ("val", "test")
+        }
 
         self.artifacts_dir: Optional[Path] = None
         self.results_dir: Optional[Path] = None
@@ -188,6 +217,47 @@ class S0LateAverageSystem(pl.LightningModule):
         self.split_metadata = split_metadata or {}
         if self.artifacts_writer:
             self.artifacts_writer.update_split_metadata(self.split_metadata)
+
+    # ------------------------------------------------------------------ #
+    def _should_enable_umodule(self) -> bool:
+        if self.modules_cfg and hasattr(self.modules_cfg, "use_umodule"):
+            return bool(getattr(self.modules_cfg, "use_umodule"))
+        if self.umodule_cfg and hasattr(self.umodule_cfg, "enabled"):
+            return bool(getattr(self.umodule_cfg, "enabled"))
+        return False
+
+    def _resolve_consistency_thresh(self) -> float:
+        if self.metrics_cfg and hasattr(self.metrics_cfg, "consistency_thresh"):
+            return float(getattr(self.metrics_cfg, "consistency_thresh"))
+        if self.c_module_cfg and hasattr(self.c_module_cfg, "thresh"):
+            return float(getattr(self.c_module_cfg, "thresh"))
+        return 0.6
+
+    def _gather_metadata_sources(self) -> List[str]:
+        datamodule_cfg = getattr(self.cfg, "datamodule", None)
+        if datamodule_cfg is None:
+            return []
+        seen: set[str] = set()
+        sources: List[str] = []
+        for attr in ("train_csv", "val_csv", "test_csv", "test_ood_csv"):
+            raw = getattr(datamodule_cfg, attr, None)
+            if not raw:
+                continue
+            for candidate in self._expand_csv_candidates(str(raw)):
+                if candidate in seen:
+                    continue
+                seen.add(candidate)
+                sources.append(candidate)
+        return sources
+
+    @staticmethod
+    def _expand_csv_candidates(path_str: str) -> List[str]:
+        path = Path(path_str)
+        candidates = [str(path)]
+        cached = path.with_name(f"{path.stem}_cached{path.suffix}")
+        if cached != path:
+            candidates.append(str(cached))
+        return candidates
 
     # ------------------------------------------------------------------ #
     def _compute_loss(self, logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
@@ -222,6 +292,142 @@ class S0LateAverageSystem(pl.LightningModule):
                 "visual": self.visual_head(embeddings["visual"]),
             }
 
+    # ------------------------------------------------------------------ #
+    def _run_c_module(
+        self,
+        batch: Dict[str, Any],
+        stage: str,
+        device: torch.device,
+        batch_size: int,
+    ) -> Optional[Dict[str, Any]]:
+        if not (self.cmodule_enabled and self.c_module and stage in ("val", "test")):
+            return None
+        url_tensor = batch.get("url")
+        if not isinstance(url_tensor, torch.Tensor):
+            return None
+        sample_ids = self._batch_to_list(batch.get("id"))
+        urls = self._decode_url_tokens(url_tensor)
+        if len(sample_ids) < batch_size:
+            sample_ids.extend([None] * (batch_size - len(sample_ids)))
+        results: List[Dict[str, Any]] = []
+        c_scores: List[float] = []
+        c_url_scores: List[float] = []
+        c_html_scores: List[float] = []
+        c_visual_scores: List[float] = []
+        brand_url: List[str] = []
+        brand_html: List[str] = []
+        brand_vis: List[str] = []
+
+        for idx in range(batch_size):
+            payload = {
+                "sample_id": sample_ids[idx],
+                "id": sample_ids[idx],
+                "url_text": urls[idx] if idx < len(urls) else "",
+            }
+            result = self.c_module.score_consistency(payload)
+            results.append(result)
+            value = result.get("c_mean", math.nan)
+            try:
+                score = float(value)
+            except (TypeError, ValueError):
+                score = math.nan
+            c_scores.append(score)
+
+            # Extract per-modality consistency scores
+            try:
+                c_url_scores.append(float(result.get("c_url", math.nan)))
+            except (TypeError, ValueError):
+                c_url_scores.append(math.nan)
+            try:
+                c_html_scores.append(float(result.get("c_html", math.nan)))
+            except (TypeError, ValueError):
+                c_html_scores.append(math.nan)
+            try:
+                c_visual_scores.append(float(result.get("c_visual", math.nan)))
+            except (TypeError, ValueError):
+                c_visual_scores.append(math.nan)
+
+            brands = result.get("meta", {}).get("brands", {})
+            brand_url.append(brands.get("url") or "")
+            brand_html.append(brands.get("html") or "")
+            brand_vis.append(brands.get("visual") or "")
+
+        valid_scores = [score for score in c_scores if not math.isnan(score)]
+        self._consistency_scores.setdefault(stage, []).extend(valid_scores)
+        tensor = torch.tensor(c_scores, dtype=torch.float32, device=device)
+        return {
+            "c_mean": tensor,
+            "c_url": torch.tensor(c_url_scores, dtype=torch.float32, device=device),
+            "c_html": torch.tensor(c_html_scores, dtype=torch.float32, device=device),
+            "c_visual": torch.tensor(
+                c_visual_scores, dtype=torch.float32, device=device
+            ),
+            "brand_url": brand_url,
+            "brand_html": brand_html,
+            "brand_vis": brand_vis,
+        }
+
+    @staticmethod
+    def _decode_url_tokens(url_tensor: torch.Tensor) -> List[str]:
+        if not isinstance(url_tensor, torch.Tensor):
+            return []
+        if url_tensor.dim() == 1:
+            url_tensor = url_tensor.unsqueeze(0)
+        rows = url_tensor.detach().cpu().tolist()
+        urls: List[str] = []
+        for row in rows:
+            chars: List[str] = []
+            for value in row:
+                code = int(value)
+                if code <= 0:
+                    break
+                code = min(max(code, 32), 255)
+                try:
+                    chars.append(chr(code))
+                except ValueError:
+                    continue
+            urls.append("".join(chars))
+        return urls
+
+    @staticmethod
+    def _batch_to_list(value: Any) -> List[Any]:
+        if value is None:
+            return []
+        if isinstance(value, torch.Tensor):
+            return value.detach().cpu().tolist()
+        if isinstance(value, (list, tuple)):
+            return list(value)
+        return [value]
+
+    def _log_consistency_metrics(self, stage: str) -> None:
+        if stage not in self._consistency_scores:
+            return
+        if not (self.cmodule_enabled and self.c_module):
+            self._consistency_scores[stage].clear()
+            return
+        if not self._consistency_scores[stage]:
+            return
+        scores = torch.tensor(self._consistency_scores[stage], dtype=torch.float32)
+        acs = float(scores.mean().item())
+        mismatch = float((scores < self.c_module_threshold).float().mean().item())
+        self.log(
+            f"{stage}/consistency/acs",
+            acs,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        self.log(
+            f"{stage}/consistency/mr@{self.c_module_threshold:.2f}",
+            mismatch,
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+            sync_dist=True,
+        )
+        self._consistency_scores[stage].clear()
+
     def forward(self, batch: Dict[str, Any]) -> torch.Tensor:
         logits_dict = self._compute_logits(batch)
         probs = torch.stack(
@@ -249,27 +455,7 @@ class S0LateAverageSystem(pl.LightningModule):
         preds = (probs > 0.5).long().view(-1)
         avg_logit = torch.logit(probs.clamp(min=1e-6, max=1 - 1e-6))
 
-        var_probs: Dict[str, torch.Tensor] = {}
-        if self.umodule_enabled and self.u_module and stage in ("val", "test"):
-
-            def _batched_logits_fn(
-                data: Dict[str, Any],
-                enable_mc_dropout: bool = False,
-                dropout_p: Optional[float] = None,
-            ) -> Dict[str, torch.Tensor]:
-                return self._compute_logits(
-                    data,
-                    enable_mc_dropout=enable_mc_dropout,
-                    dropout_override=dropout_p,
-                )
-
-            with torch.no_grad():
-                _, _, var_probs = mc_dropout_predict(
-                    logits_fn=_batched_logits_fn,
-                    inputs=batch,
-                    mc_iters=self.u_module.mc_iters,
-                    dropout_p=self.u_module.dropout_p,
-                )
+        var_probs = self._um_mc_dropout_predict(batch, stage)
 
         self._maybe_cache_umodule_inputs(
             stage, labels_int, logits_dict, probs_dict, probs, var_probs
@@ -277,7 +463,9 @@ class S0LateAverageSystem(pl.LightningModule):
 
         extras: Dict[str, torch.Tensor] = {}
         if stage == "test" and self.umodule_enabled and self.u_module:
-            extras = self._compute_test_reliability(logits_dict, probs_dict, var_probs)
+            extras = self._um_compute_test_reliability(
+                logits_dict, probs_dict, var_probs
+            )
         if stage == "test" and self.umodule_enabled:
             for mod, column in self._reliability_column_map.items():
                 if column not in extras:
@@ -287,6 +475,13 @@ class S0LateAverageSystem(pl.LightningModule):
                         device=labels_int.device,
                         dtype=torch.float32,
                     )
+
+        cmodule_block = self._run_c_module(
+            batch,
+            stage=stage,
+            device=labels.device,
+            batch_size=labels_int.shape[0],
+        )
 
         # For test stage, compute metrics immediately (needed for final evaluation)
         if stage == "test":
@@ -330,6 +525,16 @@ class S0LateAverageSystem(pl.LightningModule):
             }
             if extras:
                 record["extras"] = extras
+            if cmodule_block:
+                record["cmodule"] = {
+                    "c_mean": cmodule_block["c_mean"].detach().cpu(),
+                    "c_url": cmodule_block["c_url"].detach().cpu(),
+                    "c_html": cmodule_block["c_html"].detach().cpu(),
+                    "c_visual": cmodule_block["c_visual"].detach().cpu(),
+                    "brand_url": cmodule_block["brand_url"],
+                    "brand_html": cmodule_block["brand_html"],
+                    "brand_vis": cmodule_block["brand_vis"],
+                }
             cache.append(record)
 
         return {
@@ -448,19 +653,21 @@ class S0LateAverageSystem(pl.LightningModule):
             self._preds["val"].clear()
 
         if self.umodule_enabled and self.u_module:
-            self._process_validation_calibration()
+            self._um_fit_temperature_on_val()
+        self._log_consistency_metrics("val")
 
     def on_test_epoch_end(self) -> None:
         if self._preds["test"]:
             writer = self._get_artifacts_writer()
             writer.save_stage_artifacts(self._preds["test"], stage="test")
             self._preds["test"].clear()
-        self._write_eval_summary()
+        self._um_log_reliability_metrics()
         if self.umodule_enabled and self.u_module:
             if self._fused_post_probs["test"]:
-                self._generate_reliability_plots()
+                self._um_plot_reliability()
             else:
                 self._clear_stage_cache("test")
+        self._log_consistency_metrics("test")
 
     # ------------------------------------------------------------------ #
     # MC Dropout helpers                                                 #
@@ -494,6 +701,32 @@ class S0LateAverageSystem(pl.LightningModule):
                 if dropout_override is not None and prev_p is not None:
                     layer.p = prev_p
 
+    def _um_mc_dropout_predict(
+        self, batch: Dict[str, Any], stage: str
+    ) -> Dict[str, torch.Tensor]:
+        if not (self.umodule_enabled and self.u_module and stage in ("val", "test")):
+            return {}
+
+        def _batched_logits_fn(
+            data: Dict[str, Any],
+            enable_mc_dropout: bool = False,
+            dropout_p: Optional[float] = None,
+        ) -> Dict[str, torch.Tensor]:
+            return self._compute_logits(
+                data,
+                enable_mc_dropout=enable_mc_dropout,
+                dropout_override=dropout_p,
+            )
+
+        with torch.no_grad():
+            _, _, var_probs = mc_dropout_predict(
+                logits_fn=_batched_logits_fn,
+                inputs=batch,
+                mc_iters=self.u_module.mc_iters,
+                dropout_p=self.u_module.dropout_p,
+            )
+        return var_probs
+
     def _maybe_cache_umodule_inputs(
         self,
         stage: str,
@@ -523,7 +756,7 @@ class S0LateAverageSystem(pl.LightningModule):
                         var_tensor.detach().cpu()
                     )
 
-    def _compute_test_reliability(
+    def _um_compute_test_reliability(
         self,
         logits_dict: Dict[str, torch.Tensor],
         probs_dict: Dict[str, torch.Tensor],
@@ -559,7 +792,7 @@ class S0LateAverageSystem(pl.LightningModule):
 
         return extras
 
-    def _process_validation_calibration(self) -> None:
+    def _um_fit_temperature_on_val(self) -> None:
         if not self.umodule_enabled or not self.u_module:
             return
         label_chunks = self._stage_labels.get("val", [])
@@ -687,13 +920,15 @@ class S0LateAverageSystem(pl.LightningModule):
         for mod in self.modalities:
             for key in self._modal_outputs[stage][mod]:
                 self._modal_outputs[stage][mod][key].clear()
+        if stage in self._consistency_scores:
+            self._consistency_scores[stage].clear()
 
     def _get_ece_bins(self) -> int:
         if self.metrics_cfg and hasattr(self.metrics_cfg, "ece_bins"):
             return int(getattr(self.metrics_cfg, "ece_bins"))
         return 15
 
-    def _generate_reliability_plots(self) -> None:
+    def _um_plot_reliability(self) -> None:
         if not (
             self.umodule_enabled
             and self._fused_probs["test"]
@@ -751,7 +986,7 @@ class S0LateAverageSystem(pl.LightningModule):
         )
         self._clear_stage_cache("test")
 
-    def _write_eval_summary(self) -> None:
+    def _um_log_reliability_metrics(self) -> None:
         if not (
             self.results_dir and self._stage_labels["test"] and self.umodule_enabled
         ):
