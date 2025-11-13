@@ -1,0 +1,104 @@
+[2025-11-12 16:19:50]
+[2025-11-12 16:19:50] ======================================================================
+[2025-11-12 16:19:50] S1
+[2025-11-12 16:19:50] : 2025-11-12 16:19:50
+[2025-11-12 16:19:50] : workspace/training_progress.log
+[2025-11-12 16:19:50] ======================================================================
+[2025-11-12 16:19:50] ======================================================================
+[2025-11-12 16:19:50] ...
+[2025-11-12 16:19:50] : s1_iid_lateavg_20251112_155335
+[2025-11-12 16:19:50]  ...
+[2025-11-12 16:19:50] : 5
+[2025-11-12 16:24:51] : Epoch 6/20
+[2025-11-12 16:29:51] : Epoch 7/20
+[2025-11-12 16:34:51] : Epoch 9/20
+[2025-11-12 16:39:51] ... (: s1_iid_lateavg_20251112_155335)
+[2025-11-12 16:39:51]  : s1_iid_lateavg_20251112_155335
+[2025-11-12 16:39:51] ======================================================================
+[2025-11-12 16:39:51]
+5...
+[2025-11-12 16:39:51] ======================================================================
+[2025-11-12 16:39:51]  2/6: S1_IID_seed43
+[2025-11-12 16:39:51] : python scripts/train_hydra.py experiment=s1_iid_lateavg run.seed=43
+[2025-11-12 16:39:51] ======================================================================
+[2025-11-12 20:25:00]   S1_IID_seed43 : 225.2
+[2025-11-12 20:25:00] : experiments\s1_iid_lateavg_20251112_163956
+[2025-11-12 20:25:00]   S1_IID_seed43 : Unknown format code 'f' for object of type 'str'
+[2025-11-12 20:25:00] : 225.2
+[2025-11-12 20:25:00]    S1_IID_seed43
+[2025-11-12 20:25:10] ======================================================================
+[2025-11-12 20:25:10]  3/6: S1_IID_seed44
+[2025-11-12 20:25:10] : python scripts/train_hydra.py experiment=s1_iid_lateavg run.seed=44
+[2025-11-12 20:25:10] ======================================================================
+[2025-11-12 20:25:16]   S1_IID_seed44 : 1
+[2025-11-12 20:25:16] : Seed set to 44
+Error executing job with overrides: ['experiment=s1_iid_lateavg', 'run.seed=44']
+
+Error locating target 'src.systems.s0_late_avg_system.S0LateAverageSystem', set env var HYDRA_FULL_ERROR=1 to see chained exception.
+full_key: system
+
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.
+
+[2025-11-12 20:25:16]    S1_IID_seed44
+[2025-11-12 20:25:26] ======================================================================
+[2025-11-12 20:25:26]  4/6: S1_BrandOOD_seed42
+[2025-11-12 20:25:26] : python scripts/train_hydra.py experiment=s1_brandood_lateavg run.seed=42
+[2025-11-12 20:25:26] ======================================================================
+[2025-11-12 20:25:32]   S1_BrandOOD_seed42 : 1
+[2025-11-12 20:25:32] : Seed set to 42
+Error executing job with overrides: ['experiment=s1_brandood_lateavg', 'run.seed=42']
+
+Error locating target 'src.systems.s0_late_avg_system.S0LateAverageSystem', set env var HYDRA_FULL_ERROR=1 to see chained exception.
+full_key: system
+
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.
+
+[2025-11-12 20:25:32]    S1_BrandOOD_seed42
+[2025-11-12 20:25:42] ======================================================================
+[2025-11-12 20:25:42]  5/6: S1_BrandOOD_seed43
+[2025-11-12 20:25:42] : python scripts/train_hydra.py experiment=s1_brandood_lateavg run.seed=43
+[2025-11-12 20:25:42] ======================================================================
+[2025-11-12 20:25:48]   S1_BrandOOD_seed43 : 1
+[2025-11-12 20:25:48] : Seed set to 43
+Error executing job with overrides: ['experiment=s1_brandood_lateavg', 'run.seed=43']
+
+Error locating target 'src.systems.s0_late_avg_system.S0LateAverageSystem', set env var HYDRA_FULL_ERROR=1 to see chained exception.
+full_key: system
+
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.
+
+[2025-11-12 20:25:48]    S1_BrandOOD_seed43
+[2025-11-12 20:25:58] ======================================================================
+[2025-11-12 20:25:58]  6/6: S1_BrandOOD_seed44
+[2025-11-12 20:25:58] : python scripts/train_hydra.py experiment=s1_brandood_lateavg run.seed=44
+[2025-11-12 20:25:58] ======================================================================
+[2025-11-12 20:26:04]   S1_BrandOOD_seed44 : 1
+[2025-11-12 20:26:04] : Seed set to 44
+Error executing job with overrides: ['experiment=s1_brandood_lateavg', 'run.seed=44']
+
+Error locating target 'src.systems.s0_late_avg_system.S0LateAverageSystem', set env var HYDRA_FULL_ERROR=1 to see chained exception.
+full_key: system
+
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.
+
+[2025-11-12 20:26:04]    S1_BrandOOD_seed44
+[2025-11-12 20:26:14]
+[2025-11-12 20:26:14] ======================================================================
+[2025-11-12 20:26:14]
+[2025-11-12 20:26:14] : 3.77
+[2025-11-12 20:26:14] : 2025-11-12 20:26:14
+[2025-11-12 20:26:14] ======================================================================
+[2025-11-12 20:26:14]
+:
+[2025-11-12 20:26:14] 1/6 - S1_IID_seed42  ()
+[2025-11-12 20:26:14] 2/6 - S1_IID_seed43
+[2025-11-12 20:26:14] 3/6 - S1_IID_seed44
+[2025-11-12 20:26:14] 4/6 - S1_BrandOOD_seed42
+[2025-11-12 20:26:14] 5/6 - S1_BrandOOD_seed43
+[2025-11-12 20:26:14] 6/6 - S1_BrandOOD_seed44
+[2025-11-12 20:26:14]
+: 1/6

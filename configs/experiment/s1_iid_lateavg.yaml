@@ -1,0 +1,89 @@
+# @package _global_
+
+defaults:
+  - override /model: multimodal_baseline
+  - override /trainer: default
+  - override /logger: wandb
+
+run:
+  name: s1_iid_lateavg
+  seed: 42
+  tags: ["s1", "iid", "lateavg"]
+  notes: "S1 IID LateAvg baseline with U-Module (MC Dropout + Temp Scaling)"
+
+protocol: presplit
+
+system:
+  _target_: src.systems.s0_late_avg_system.S0LateAverageSystem
+  _recursive_: false
+  url_vocab_size: ${model.url_vocab_size}
+  url_embed_dim: ${model.url_embed_dim}
+  url_hidden_dim: ${model.url_hidden_dim}
+  url_num_layers: ${model.url_num_layers}
+  url_max_len: ${model.url_max_len}
+  html_model_name: ${model.html_model_name}
+  html_hidden_dim: ${model.html_hidden_dim}
+  html_projection_dim: ${model.html_projection_dim}
+  html_freeze_bert: ${model.html_freeze_bert}
+  visual_model_name: ${model.visual_model_name}
+  visual_pretrained: ${model.visual_pretrained}
+  visual_projection_dim: ${model.visual_projection_dim}
+  visual_freeze_backbone: ${model.visual_freeze_backbone}
+  learning_rate: 3.0e-4
+  weight_decay: 1.0e-4
+  dropout: 0.3
+  pos_weight: null
+
+datamodule:
+  _target_: src.data.multimodal_datamodule.MultimodalDataModule
+  _recursive_: false
+  train_csv: workspace/data/splits/iid/train_cached.csv
+  val_csv: workspace/data/splits/iid/val_cached.csv
+  test_csv: workspace/data/splits/iid/test_cached.csv
+  image_dir: data/processed/screenshots
+  corrupt_root: workspace/data/corrupt
+  batch_size: 32
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 2
+  use_augmentation: false
+  url_max_len: 200
+  url_vocab_size: 128
+  html_max_len: 256
+  preload_html: false
+  preprocessed_train_dir: workspace/data/preprocessed/iid/train
+  preprocessed_val_dir: workspace/data/preprocessed/iid/val
+  preprocessed_test_dir: workspace/data/preprocessed/iid/test
+
+paths:
+  output_dir: workspace/runs/${run.name}/seed_${run.seed}
+
+hardware:
+  accelerator: gpu
+  devices: 1
+  precision: 16-mixed
+
+train:
+  epochs: 20
+  lr: 3.0e-4
+  bs: 32
+  weight_decay: 1.0e-4
+  grad_accumulation: 1
+  log_every: 25
+
+eval:
+  monitor: val/loss
+  patience: 5
+
+umodule:
+  enabled: true
+  mc_iters: 10
+  dropout: 0.3
+  lambda_u: 1.0
+  temperature_init: 1.0
+  learnable: false
+
+metrics:
+  ece_bins: 15
+  fpr_tpr: 0.95

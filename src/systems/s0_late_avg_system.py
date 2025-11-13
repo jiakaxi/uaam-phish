@@ -4,18 +4,29 @@ Late-fusion (uniform average) multimodal baseline for S0 experiments.
 
 from __future__ import annotations
 
+import json
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import torch
 import pytorch_lightning as pl
 from torch import nn
+import torch.nn.functional as F
+from torch.nn.modules.dropout import _DropoutNd
 from torchmetrics import Accuracy, AUROC, F1Score
 
 from src.models.url_encoder import URLEncoder
 from src.models.html_encoder import HTMLEncoder
 from src.models.visual_encoder import VisualEncoder
+from src.modules.u_module import (
+    UModule,
+    mc_dropout_predict,
+    temperature_scaling,
+)
 from src.utils.protocol_artifacts import ArtifactsWriter
+from src.utils.visualizer import ResultVisualizer
+from src.utils.metrics import ece as compute_ece_metric, brier_score
 from src.utils.logging import get_logger
 
 
@@ -105,7 +116,57 @@ class S0LateAverageSystem(pl.LightningModule):
         self.test_auroc = AUROC(task="binary")
         self.test_f1 = F1Score(task="binary")
 
+        self.modalities = ("url", "html", "visual")
+        self.metrics_cfg = getattr(cfg, "metrics", None)
+        self.umodule_cfg = getattr(cfg, "umodule", None)
+        self.umodule_enabled = bool(
+            getattr(self.umodule_cfg, "enabled", False) if self.umodule_cfg else False
+        )
+        self.u_module: Optional[UModule] = None
+        if self.umodule_enabled:
+            self.u_module = UModule(
+                mc_iters=getattr(self.umodule_cfg, "mc_iters", 10),
+                dropout_p=getattr(self.umodule_cfg, "dropout", dropout),
+                init_temperature=getattr(self.umodule_cfg, "temperature_init", 1.0),
+                lambda_u=getattr(self.umodule_cfg, "lambda_u", 1.0),
+                learnable=getattr(self.umodule_cfg, "learnable", False),
+            )
+
+        self._dropout_layers: list[_DropoutNd] = []
+        self._cache_dropout_layers()
+
+        tracked_stages = ("val", "test")
+        self._stage_labels: Dict[str, list[torch.Tensor]] = {
+            stage: [] for stage in tracked_stages
+        }
+        self._modal_outputs: Dict[str, Dict[str, Dict[str, list[torch.Tensor]]]] = {
+            stage: {
+                mod: {
+                    "logits": [],
+                    "probs": [],
+                    "probs_ts": [],
+                    "reliability": [],
+                    "var": [],
+                }
+                for mod in self.modalities
+            }
+            for stage in tracked_stages
+        }
+        self._fused_probs: Dict[str, list[torch.Tensor]] = {
+            stage: [] for stage in tracked_stages
+        }
+        self._fused_post_probs: Dict[str, list[torch.Tensor]] = {
+            stage: [] for stage in tracked_stages
+        }
+        self._calibration_summary: Dict[str, Dict[str, float | str | int]] = {}
+        self._reliability_column_map = {
+            "url": "r_url",
+            "html": "r_html",
+            "visual": "r_img",
+        }
+
         self.artifacts_dir: Optional[Path] = None
+        self.results_dir: Optional[Path] = None
         self.split_metadata: Dict[str, Any] = {}
         self.artifacts_writer: Optional[ArtifactsWriter] = None
         self._preds: Dict[str, list] = {"val": [], "test": []}
@@ -118,6 +179,10 @@ class S0LateAverageSystem(pl.LightningModule):
     def set_artifact_dir(self, artifact_dir: Path | str) -> None:
         self.artifacts_dir = Path(artifact_dir)
         log.info(">> Artifact directory set to %s", self.artifacts_dir)
+
+    def set_results_dir(self, results_dir: Path | str) -> None:
+        self.results_dir = Path(results_dir)
+        log.info(">> Results directory set to %s", self.results_dir)
 
     def set_split_metadata(self, split_metadata: Dict[str, Any]) -> None:
         self.split_metadata = split_metadata or {}
@@ -143,13 +208,19 @@ class S0LateAverageSystem(pl.LightningModule):
         z_visual = self.visual_encoder(batch["visual"])
         return {"url": z_url, "html": z_html, "visual": z_visual}
 
-    def _compute_logits(self, batch: Dict[str, Any]) -> Dict[str, torch.Tensor]:
-        embeddings = self._encode_modalities(batch)
-        return {
-            "url": self.url_head(embeddings["url"]),
-            "html": self.html_head(embeddings["html"]),
-            "visual": self.visual_head(embeddings["visual"]),
-        }
+    def _compute_logits(
+        self,
+        batch: Dict[str, Any],
+        enable_mc_dropout: bool = False,
+        dropout_override: Optional[float] = None,
+    ) -> Dict[str, torch.Tensor]:
+        with self._mc_dropout_context(enable_mc_dropout, dropout_override):
+            embeddings = self._encode_modalities(batch)
+            return {
+                "url": self.url_head(embeddings["url"]),
+                "html": self.html_head(embeddings["html"]),
+                "visual": self.visual_head(embeddings["visual"]),
+            }
 
     def forward(self, batch: Dict[str, Any]) -> torch.Tensor:
         logits_dict = self._compute_logits(batch)
@@ -172,11 +243,50 @@ class S0LateAverageSystem(pl.LightningModule):
         losses = [self._compute_loss(logits, labels) for logits in logits_dict.values()]
         loss = torch.stack(losses).mean()
 
-        probs = torch.stack(
-            [torch.sigmoid(logits) for logits in logits_dict.values()], dim=0
-        ).mean(dim=0)
+        probs_dict = {mod: torch.sigmoid(logits) for mod, logits in logits_dict.items()}
+        probs_stack = torch.stack([probs_dict[mod] for mod in self.modalities], dim=0)
+        probs = probs_stack.mean(dim=0)
         preds = (probs > 0.5).long().view(-1)
         avg_logit = torch.logit(probs.clamp(min=1e-6, max=1 - 1e-6))
+
+        var_probs: Dict[str, torch.Tensor] = {}
+        if self.umodule_enabled and self.u_module and stage in ("val", "test"):
+
+            def _batched_logits_fn(
+                data: Dict[str, Any],
+                enable_mc_dropout: bool = False,
+                dropout_p: Optional[float] = None,
+            ) -> Dict[str, torch.Tensor]:
+                return self._compute_logits(
+                    data,
+                    enable_mc_dropout=enable_mc_dropout,
+                    dropout_override=dropout_p,
+                )
+
+            with torch.no_grad():
+                _, _, var_probs = mc_dropout_predict(
+                    logits_fn=_batched_logits_fn,
+                    inputs=batch,
+                    mc_iters=self.u_module.mc_iters,
+                    dropout_p=self.u_module.dropout_p,
+                )
+
+        self._maybe_cache_umodule_inputs(
+            stage, labels_int, logits_dict, probs_dict, probs, var_probs
+        )
+
+        extras: Dict[str, torch.Tensor] = {}
+        if stage == "test" and self.umodule_enabled and self.u_module:
+            extras = self._compute_test_reliability(logits_dict, probs_dict, var_probs)
+        if stage == "test" and self.umodule_enabled:
+            for mod, column in self._reliability_column_map.items():
+                if column not in extras:
+                    extras[column] = torch.full(
+                        (labels_int.shape[0],),
+                        float("nan"),
+                        device=labels_int.device,
+                        dtype=torch.float32,
+                    )
 
         # For test stage, compute metrics immediately (needed for final evaluation)
         if stage == "test":
@@ -212,14 +322,15 @@ class S0LateAverageSystem(pl.LightningModule):
 
         cache = self._preds.get(stage)
         if cache is not None:
-            cache.append(
-                {
-                    "id": batch.get("id"),
-                    "y_true": labels_int.detach().cpu(),
-                    "logit": avg_logit.detach().cpu(),
-                    "prob": probs.detach().cpu(),
-                }
-            )
+            record = {
+                "id": batch.get("id"),
+                "y_true": labels_int.detach().cpu(),
+                "logit": avg_logit.detach().cpu(),
+                "prob": probs.detach().cpu(),
+            }
+            if extras:
+                record["extras"] = extras
+            cache.append(record)
 
         return {
             "loss": loss,
@@ -280,6 +391,11 @@ class S0LateAverageSystem(pl.LightningModule):
             "y_prob": output["probs"].detach().cpu(),
         }
 
+    def on_test_start(self) -> None:
+        super().on_test_start()
+        if self.umodule_enabled and self.u_module and not self.u_module.tau_cache:
+            self._load_calibration_from_disk()
+
     # ------------------------------------------------------------------ #
     def _get_artifacts_writer(self) -> ArtifactsWriter:
         if self.artifacts_writer is None:
@@ -331,11 +447,385 @@ class S0LateAverageSystem(pl.LightningModule):
             writer.save_stage_artifacts(self._preds["val"], stage="val")
             self._preds["val"].clear()
 
+        if self.umodule_enabled and self.u_module:
+            self._process_validation_calibration()
+
     def on_test_epoch_end(self) -> None:
         if self._preds["test"]:
             writer = self._get_artifacts_writer()
             writer.save_stage_artifacts(self._preds["test"], stage="test")
             self._preds["test"].clear()
+        self._write_eval_summary()
+        if self.umodule_enabled and self.u_module:
+            if self._fused_post_probs["test"]:
+                self._generate_reliability_plots()
+            else:
+                self._clear_stage_cache("test")
+
+    # ------------------------------------------------------------------ #
+    # MC Dropout helpers                                                 #
+    # ------------------------------------------------------------------ #
+    def _cache_dropout_layers(self) -> None:
+        self._dropout_layers = [
+            module for module in self.modules() if isinstance(module, _DropoutNd)
+        ]
+
+    @contextmanager
+    def _mc_dropout_context(
+        self, enable: bool, dropout_override: Optional[float] = None
+    ):
+        if not enable:
+            yield
+            return
+        if not self._dropout_layers:
+            self._cache_dropout_layers()
+        states = []
+        for layer in self._dropout_layers:
+            states.append((layer, layer.training, getattr(layer, "p", None)))
+        try:
+            for layer, _, prev_p in states:
+                layer.train()
+                if dropout_override is not None and prev_p is not None:
+                    layer.p = dropout_override
+            yield
+        finally:
+            for layer, prev_training, prev_p in states:
+                layer.train(prev_training)
+                if dropout_override is not None and prev_p is not None:
+                    layer.p = prev_p
+
+    def _maybe_cache_umodule_inputs(
+        self,
+        stage: str,
+        labels: torch.Tensor,
+        logits_dict: Dict[str, torch.Tensor],
+        probs_dict: Dict[str, torch.Tensor],
+        fused_probs: torch.Tensor,
+        var_probs: Dict[str, torch.Tensor],
+    ) -> None:
+        if not self.umodule_enabled:
+            return
+        if stage not in self._stage_labels:
+            return
+        self._stage_labels[stage].append(labels.detach().cpu())
+        self._fused_probs[stage].append(fused_probs.detach().cpu())
+        for mod in self.modalities:
+            self._modal_outputs[stage][mod]["logits"].append(
+                logits_dict[mod].detach().cpu()
+            )
+            self._modal_outputs[stage][mod]["probs"].append(
+                probs_dict[mod].detach().cpu()
+            )
+            if var_probs:
+                var_tensor = var_probs.get(mod)
+                if var_tensor is not None:
+                    self._modal_outputs[stage][mod]["var"].append(
+                        var_tensor.detach().cpu()
+                    )
+
+    def _compute_test_reliability(
+        self,
+        logits_dict: Dict[str, torch.Tensor],
+        probs_dict: Dict[str, torch.Tensor],
+        var_probs: Dict[str, torch.Tensor],
+    ) -> Dict[str, torch.Tensor]:
+        extras: Dict[str, torch.Tensor] = {}
+        if not self.u_module or not self.u_module.tau_cache:
+            return extras
+
+        fused_post_collection: list[torch.Tensor] = []
+        for mod in self.modalities:
+            tau = self.u_module.tau_cache.get(mod)
+            var_tensor = var_probs.get(mod)
+            if tau is None or var_tensor is None:
+                continue
+            probs_ts, reliability = self.u_module.estimate_reliability(
+                logits=logits_dict[mod].detach(),
+                probs=probs_dict[mod].detach(),
+                var_prob=var_tensor.to(logits_dict[mod].device),
+                tau=tau,
+            )
+            self._modal_outputs["test"][mod]["probs_ts"].append(probs_ts.detach().cpu())
+            self._modal_outputs["test"][mod]["reliability"].append(
+                reliability.detach().cpu()
+            )
+            fused_post_collection.append(probs_ts.detach())
+            column_name = self._reliability_column_map.get(mod, f"r_{mod}")
+            extras[column_name] = reliability.detach().cpu()
+
+        if fused_post_collection:
+            fused_post = torch.stack(fused_post_collection, dim=0).mean(dim=0)
+            self._fused_post_probs["test"].append(fused_post.detach().cpu())
+
+        return extras
+
+    def _process_validation_calibration(self) -> None:
+        if not self.umodule_enabled or not self.u_module:
+            return
+        label_chunks = self._stage_labels.get("val", [])
+        if not label_chunks:
+            return
+        labels = torch.cat(label_chunks).view(-1).float()
+        if labels.numel() == 0:
+            return
+
+        ece_bins = self._get_ece_bins()
+        ts_per_mod: Dict[str, torch.Tensor] = {}
+
+        for mod in self.modalities:
+            logits_list = self._modal_outputs["val"][mod]["logits"]
+            if not logits_list:
+                continue
+            logits = torch.cat(logits_list, dim=0)
+            probs = torch.cat(self._modal_outputs["val"][mod]["probs"], dim=0)
+            meta = self.u_module.fit_temperature_on_val(mod, logits, labels)
+
+            scaled_logits = temperature_scaling(logits, meta["tau"])
+            probs_ts = torch.sigmoid(scaled_logits)
+            ts_per_mod[mod] = probs_ts.detach()
+            self._modal_outputs["val"][mod]["probs_ts"].append(probs_ts.detach().cpu())
+
+            ece_pre, stats_pre = compute_ece_metric(probs, labels, n_bins=ece_bins)
+            ece_post, stats_post = compute_ece_metric(probs_ts, labels, n_bins=ece_bins)
+            brier_post = brier_score(probs_ts, labels)
+            nll_post = F.binary_cross_entropy_with_logits(
+                scaled_logits,
+                labels.view(-1, 1).to(scaled_logits.device),
+            ).item()
+
+            meta.update(
+                {
+                    "ece_pre": float(ece_pre),
+                    "ece_post": float(ece_post),
+                    "ece_bins_pre": int(stats_pre["bins_used"]),
+                    "ece_bins_post": int(stats_post["bins_used"]),
+                    "brier_post": float(brier_post),
+                    "nll_post": float(nll_post),
+                }
+            )
+            self._calibration_summary[mod] = meta
+
+            self.log(
+                f"val/umodule/ece_pre_{mod}",
+                float(ece_pre),
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+            )
+            self.log(
+                f"val/umodule/ece_post_{mod}",
+                float(ece_post),
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+            )
+            self.log(
+                f"val/umodule/brier_post_{mod}",
+                float(brier_post),
+                prog_bar=False,
+                on_step=False,
+                on_epoch=True,
+            )
+
+        if ts_per_mod:
+            fused_post = torch.stack(list(ts_per_mod.values()), dim=0).mean(dim=0)
+            self._fused_post_probs["val"] = [fused_post.detach().cpu()]
+
+        self._write_calibration_artifacts()
+        self._clear_stage_cache("val")
+
+    def _write_calibration_artifacts(self) -> None:
+        if not self._calibration_summary:
+            return
+        writer = self._get_artifacts_writer()
+        output_dir = writer.output_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+        calib_path = output_dir / "calibration.json"
+        payload = {"modalities": self._calibration_summary}
+        for mod, meta in self._calibration_summary.items():
+            payload[f"tau_{mod}"] = meta.get("tau")
+            payload[f"{mod}_tau_source"] = meta.get("tau_source")
+            payload[f"{mod}_n_val"] = meta.get("n_val")
+            payload[f"{mod}_nll"] = meta.get("nll")
+        with open(calib_path, "w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2, ensure_ascii=False)
+        log.info(">> Saved calibration params: %s", calib_path)
+
+    def _load_calibration_from_disk(self) -> None:
+        writer = self._get_artifacts_writer()
+        calib_path = writer.output_dir / "calibration.json"
+        if not calib_path.exists():
+            log.warning(">> Calibration file missing: %s", calib_path)
+            return
+        try:
+            with open(calib_path, "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except Exception as exc:
+            log.warning(">> Failed to load calibration: %s", exc)
+            return
+        modalities = data.get("modalities", {})
+        for mod in self.modalities:
+            info = modalities.get(mod)
+            if not info and f"tau_{mod}" in data:
+                info = {
+                    "tau": data.get(f"tau_{mod}"),
+                    "tau_source": data.get(f"{mod}_tau_source"),
+                    "n_val": data.get(f"{mod}_n_val"),
+                    "nll": data.get(f"{mod}_nll"),
+                }
+            if info and info.get("tau") is not None and self.u_module:
+                self.u_module.tau_cache[mod] = float(info["tau"])
+                self._calibration_summary[mod] = info
+        log.info(">> Loaded calibration params from %s", calib_path)
+
+    def _clear_stage_cache(self, stage: str) -> None:
+        if stage not in self._stage_labels:
+            return
+        self._stage_labels[stage].clear()
+        self._fused_probs[stage].clear()
+        self._fused_post_probs[stage].clear()
+        for mod in self.modalities:
+            for key in self._modal_outputs[stage][mod]:
+                self._modal_outputs[stage][mod][key].clear()
+
+    def _get_ece_bins(self) -> int:
+        if self.metrics_cfg and hasattr(self.metrics_cfg, "ece_bins"):
+            return int(getattr(self.metrics_cfg, "ece_bins"))
+        return 15
+
+    def _generate_reliability_plots(self) -> None:
+        if not (
+            self.umodule_enabled
+            and self._fused_probs["test"]
+            and self._fused_post_probs["test"]
+            and self._stage_labels["test"]
+        ):
+            return
+        y_true = torch.cat(self._stage_labels["test"]).view(-1).cpu().numpy()
+        pre_probs = torch.cat(self._fused_probs["test"], dim=0).view(-1).cpu().numpy()
+        post_probs = (
+            torch.cat(self._fused_post_probs["test"], dim=0).view(-1).cpu().numpy()
+        )
+        if pre_probs.size == 0 or post_probs.size == 0:
+            return
+
+        ece_bins = self._get_ece_bins()
+        ece_pre, stats_pre = compute_ece_metric(pre_probs, y_true, n_bins=ece_bins)
+        ece_post, stats_post = compute_ece_metric(post_probs, y_true, n_bins=ece_bins)
+
+        writer = self._get_artifacts_writer()
+        pre_path = writer.output_dir / "reliability_pre_test.png"
+        post_path = writer.output_dir / "reliability_post_test.png"
+        ResultVisualizer.save_calibration_curve(
+            y_true=y_true,
+            y_prob=pre_probs,
+            path=pre_path,
+            n_bins=int(stats_pre["bins_used"]),
+            ece_value=float(ece_pre),
+            warn_small_sample=bool(stats_pre.get("ece_reason")),
+            title=f"Reliability (pre) - ECE={ece_pre:.4f} (bins={stats_pre['bins_used']})",
+        )
+        ResultVisualizer.save_calibration_curve(
+            y_true=y_true,
+            y_prob=post_probs,
+            path=post_path,
+            n_bins=int(stats_post["bins_used"]),
+            ece_value=float(ece_post),
+            warn_small_sample=bool(stats_post.get("ece_reason")),
+            title=f"Reliability (post) - ECE={ece_post:.4f} (bins={stats_post['bins_used']})",
+        )
+
+        self.log(
+            "test/umodule/ece_pre_fused",
+            float(ece_pre),
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+        )
+        self.log(
+            "test/umodule/ece_post_fused",
+            float(ece_post),
+            prog_bar=False,
+            on_step=False,
+            on_epoch=True,
+        )
+        self._clear_stage_cache("test")
+
+    def _write_eval_summary(self) -> None:
+        if not (
+            self.results_dir and self._stage_labels["test"] and self.umodule_enabled
+        ):
+            return
+
+        labels = torch.cat(self._stage_labels["test"]).view(-1).float().cpu()
+        labels_np = labels.numpy()
+        ece_bins = self._get_ece_bins()
+
+        def _concat(chunks: List[torch.Tensor]) -> Optional[torch.Tensor]:
+            if not chunks:
+                return None
+            return torch.cat(chunks).view(-1).cpu()
+
+        summary: Dict[str, Dict[str, float]] = {"modalities": {}, "fused": {}}
+        for mod in self.modalities:
+            pre_probs = _concat(self._modal_outputs["test"][mod]["probs"])
+            post_probs = _concat(self._modal_outputs["test"][mod]["probs_ts"])
+            entry: Dict[str, float] = {}
+            if pre_probs is not None:
+                ece_pre, stats_pre = compute_ece_metric(
+                    pre_probs.numpy(), labels_np, n_bins=ece_bins
+                )
+                entry["ece_pre"] = float(ece_pre)
+                entry["ece_bins_pre"] = int(stats_pre["bins_used"])
+            if post_probs is not None:
+                ece_post, stats_post = compute_ece_metric(
+                    post_probs.numpy(), labels_np, n_bins=ece_bins
+                )
+                entry["ece_post"] = float(ece_post)
+                entry["ece_bins_post"] = int(stats_post["bins_used"])
+                entry["brier_post"] = float(brier_score(post_probs.numpy(), labels_np))
+            summary["modalities"][mod] = entry
+
+        fused_pre = _concat(self._fused_probs["test"])
+        fused_post = _concat(self._fused_post_probs["test"])
+        fused_entry: Dict[str, float] = {}
+        if fused_pre is not None:
+            ece_pre, stats_pre = compute_ece_metric(
+                fused_pre.numpy(), labels_np, n_bins=ece_bins
+            )
+            fused_entry["ece_pre"] = float(ece_pre)
+            fused_entry["ece_bins_pre"] = int(stats_pre["bins_used"])
+        if fused_post is not None:
+            ece_post, stats_post = compute_ece_metric(
+                fused_post.numpy(), labels_np, n_bins=ece_bins
+            )
+            fused_entry["ece_post"] = float(ece_post)
+            fused_entry["ece_bins_post"] = int(stats_post["bins_used"])
+            fused_entry["brier_post"] = float(
+                brier_score(fused_post.numpy(), labels_np)
+            )
+        summary["fused"] = fused_entry
+
+        eval_path = self.results_dir / "eval_summary.json"
+        eval_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(eval_path, "w", encoding="utf-8") as handle:
+            json.dump(summary, handle, indent=2, ensure_ascii=False)
+        log.info(">> Saved eval summary to %s", eval_path)
+
+    def on_save_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        if self.umodule_enabled and self.u_module:
+            checkpoint["u_module_tau_cache"] = dict(self.u_module.tau_cache)
+            checkpoint["u_module_meta"] = self._calibration_summary
+
+    def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
+        if not (self.umodule_enabled and self.u_module):
+            return
+        tau_cache = checkpoint.get("u_module_tau_cache")
+        if tau_cache:
+            self.u_module.tau_cache.update(tau_cache)
+        meta = checkpoint.get("u_module_meta")
+        if meta:
+            self._calibration_summary.update(meta)
 
     # ------------------------------------------------------------------ #
     def configure_optimizers(self):

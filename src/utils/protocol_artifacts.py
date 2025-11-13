@@ -5,6 +5,7 @@ Artifact generation utilities (thesis Sec. 4.6.4).
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional
 
@@ -24,7 +25,7 @@ from sklearn.metrics import (
 )
 
 from src.utils.logging import get_logger
-from src.utils.metrics import compute_ece
+from src.utils.metrics import ece as compute_ece_metric, brier_score
 
 
 log = get_logger(__name__)
@@ -59,7 +60,7 @@ class ArtifactsWriter:
         df_preds = self._build_predictions_dataframe(preds_list)
         self._write_predictions(df_preds, stage)
 
-        metrics = self._compute_metrics(df_preds)
+        metrics = self._compute_metrics(df_preds, stage)
         self._write_metrics(metrics, stage)
         self._plot_roc(df_preds, stage)
         self._plot_reliability(df_preds, stage)
@@ -71,6 +72,7 @@ class ArtifactsWriter:
         y_true_chunks: List[torch.Tensor] = []
         logits_chunks: List[torch.Tensor] = []
         prob_chunks: List[torch.Tensor] = []
+        extra_cols: Dict[str, List[torch.Tensor]] = defaultdict(list)
 
         for batch_preds in preds_list:
             batch_ids = self._to_list(batch_preds.get("id"))
@@ -84,7 +86,6 @@ class ArtifactsWriter:
                 self._ensure_tensor(batch_preds["prob"]).view(-1).to(torch.float32)
             )
 
-            # Align ids with tensor length
             if not batch_ids:
                 batch_ids = [None] * batch_true.shape[0]
             ids.extend(batch_ids)
@@ -93,21 +94,32 @@ class ArtifactsWriter:
             logits_chunks.append(batch_logits)
             prob_chunks.append(batch_prob)
 
+            extras = batch_preds.get("extras") or {}
+            for key, value in extras.items():
+                tensor = self._ensure_tensor(value).view(-1).to(torch.float32)
+                if tensor.numel() != batch_true.shape[0]:
+                    raise ValueError(
+                        f"Extras column '{key}' length {tensor.numel()} "
+                        f"!= batch size {batch_true.shape[0]}"
+                    )
+                extra_cols[key].append(tensor)
+
         y_true = torch.cat(y_true_chunks).view(-1).cpu().numpy()
         logits = torch.cat(logits_chunks).view(-1).cpu().numpy()
         probs = torch.cat(prob_chunks).view(-1).cpu().numpy()
         y_pred = (probs > 0.5).astype(int)
 
-        df = pd.DataFrame(
-            {
-                "sample_id": ids,
-                "y_true": y_true,
-                "logit": logits,
-                "prob": probs,
-                "y_pred": y_pred,
-            }
-        )
-        return df
+        data = {
+            "sample_id": ids,
+            "y_true": y_true,
+            "logit": logits,
+            "prob": probs,
+            "y_pred": y_pred,
+        }
+        for key, tensors in extra_cols.items():
+            data[key] = torch.cat(tensors).view(-1).cpu().numpy()
+
+        return pd.DataFrame(data)
 
     def _write_predictions(self, df: pd.DataFrame, stage: str) -> None:
         stage_path = self.output_dir / f"predictions_{stage}.csv"
@@ -117,21 +129,30 @@ class ArtifactsWriter:
             final_path = self.output_dir / "predictions.csv"
             df.to_csv(final_path, index=False)
 
-    def _compute_metrics(self, df: pd.DataFrame) -> Dict[str, float]:
+    def _compute_metrics(self, df: pd.DataFrame, stage: str) -> Dict[str, float]:
         metrics = {
             "accuracy": float(accuracy_score(df["y_true"], df["y_pred"])),
             "auroc": float(roc_auc_score(df["y_true"], df["prob"])),
             "f1_macro": float(f1_score(df["y_true"], df["y_pred"], average="macro")),
+            "brier": float(brier_score(df["prob"].to_numpy(), df["y_true"].to_numpy())),
+            "positive_class": "phishing",
         }
         try:
-            ece_value, ece_bins, low_sample_warning = compute_ece(
-                df["y_true"].to_numpy(), df["prob"].to_numpy()
+            ece_value, stats = compute_ece_metric(
+                df["prob"].to_numpy(),
+                df["y_true"].to_numpy(),
+                n_bins=self._get_ece_bins(),
             )
             metrics["ece"] = float(ece_value)
-            metrics["ece_bins_used"] = int(ece_bins)
-            metrics["ece_low_sample_warning"] = bool(low_sample_warning)
+            metrics["ece_bins_used"] = int(stats["bins_used"])
+            metrics["ece_low_sample_warning"] = bool(stats.get("ece_reason"))
+            if stats.get("ece_reason"):
+                metrics["ece_reason"] = stats["ece_reason"]
+            metrics["n_samples"] = int(stats.get("n_samples", len(df)))
+            metrics[f"n_{stage}"] = int(stats.get("n_samples", len(df)))
         except Exception as exc:
             log.warning("Failed to compute ECE: %s", exc)
+        metrics["artifacts"] = self._stage_artifact_paths(stage)
         return metrics
 
     def _write_metrics(self, metrics: Dict[str, float], stage: str) -> None:
@@ -177,6 +198,8 @@ class ArtifactsWriter:
             plt.close()
 
     def _plot_reliability(self, df: pd.DataFrame, stage: str) -> None:
+        if stage == "test" and self._has_umodule():
+            return
         try:
             from sklearn.calibration import calibration_curve
         except ImportError:
@@ -184,11 +207,14 @@ class ArtifactsWriter:
             return
 
         try:
-            ece_value, ece_bins, _ = compute_ece(
-                df["y_true"].to_numpy(), df["prob"].to_numpy()
+            ece_value, stats = compute_ece_metric(
+                df["prob"].to_numpy(),
+                df["y_true"].to_numpy(),
+                n_bins=self._get_ece_bins(),
             )
+            ece_bins = stats["bins_used"]
         except Exception:
-            ece_value, ece_bins = 0.0, 15
+            ece_value, ece_bins = 0.0, self._get_ece_bins()
 
         prob_true, prob_pred = calibration_curve(
             df["y_true"], df["prob"], n_bins=ece_bins, strategy="uniform"
@@ -248,3 +274,31 @@ class ArtifactsWriter:
         if isinstance(value, (list, tuple)):
             return list(value)
         return [value]
+
+    def _get_ece_bins(self) -> int:
+        metrics_cfg = getattr(self.module, "metrics_cfg", None)
+        if metrics_cfg and hasattr(metrics_cfg, "ece_bins"):
+            return int(getattr(metrics_cfg, "ece_bins"))
+        return 15
+
+    def _has_umodule(self) -> bool:
+        return bool(getattr(self.module, "umodule_enabled", False))
+
+    def _stage_artifact_paths(self, stage: str) -> Dict[str, str]:
+        paths = {
+            "predictions": f"predictions_{stage}.csv",
+            "metrics": f"metrics_{stage}.json",
+            "roc_curve": f"roc_curve_{stage}.png",
+        }
+        default_reliability = f"reliability_before_ts_{stage}.png"
+        if (self.output_dir / default_reliability).exists():
+            paths["reliability_before"] = default_reliability
+        custom_pre = f"reliability_pre_{stage}.png"
+        custom_post = f"reliability_post_{stage}.png"
+        for name, key in (
+            (custom_pre, "reliability_pre"),
+            (custom_post, "reliability_post"),
+        ):
+            if (self.output_dir / name).exists():
+                paths[key] = name
+        return paths

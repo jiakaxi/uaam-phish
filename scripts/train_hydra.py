@@ -68,6 +68,8 @@ def train(cfg: DictConfig) -> float:
 
     if artifact_dir and hasattr(model, "set_artifact_dir"):
         model.set_artifact_dir(artifact_dir)
+    if exp_tracker and hasattr(model, "set_results_dir"):
+        model.set_results_dir(exp_tracker.results_dir)
 
     # Callbacks (Sec. 4.6.3)
     monitor = cfg.eval.get("monitor", "val_loss")
@@ -134,7 +136,11 @@ def train(cfg: DictConfig) -> float:
     # 构建 Trainer 参数（支持 fast_dev_run、limit_* 等调试参数）
     # 确定max_epochs：优先使用trainer.max_epochs，否则使用train.epochs
     max_epochs = cfg.train.epochs
-    if "trainer" in cfg and "max_epochs" in cfg.trainer:
+    if (
+        "trainer" in cfg
+        and "max_epochs" in cfg.trainer
+        and cfg.trainer.max_epochs is not None
+    ):
         max_epochs = cfg.trainer.max_epochs
         log.info(">> Using trainer.max_epochs=%s (overrides train.epochs)", max_epochs)
 
@@ -199,7 +205,7 @@ def train(cfg: DictConfig) -> float:
     log.info("=" * 70 + "\n")
 
     # 如果 max_epochs=0，跳过训练，直接进行测试
-    if max_epochs > 0:
+    if max_epochs is None or max_epochs > 0:
         trainer.fit(model, dm)
 
     if hasattr(dm, "split_metadata"):
@@ -221,7 +227,7 @@ def train(cfg: DictConfig) -> float:
     if hasattr(cfg.trainer, "ckpt_path") and cfg.trainer.ckpt_path:
         ckpt_path = str(cfg.trainer.ckpt_path)
         log.info(f">> 使用指定的 checkpoint: {ckpt_path}")
-    elif max_epochs == 0:
+    elif max_epochs is not None and max_epochs == 0:
         # max_epochs=0 时，必须指定 checkpoint
         if hasattr(cfg.trainer, "ckpt_path") and cfg.trainer.ckpt_path:
             ckpt_path = str(cfg.trainer.ckpt_path)

@@ -31,27 +31,28 @@ def parse_args() -> argparse.Namespace:
 
 
 def calculate_statistics(df: pd.DataFrame, metrics: List[str]) -> pd.DataFrame:
-    """Calculate mean ± std for each model and metric."""
+    """Calculate mean ± 95% CI for each model and metric."""
     results = []
 
-    for model in df["model"].unique():
+    for model in sorted(df["model"].unique()):
         model_data = df[df["model"] == model]
-        row = {"Model": model}
+        row = {"Model": model, "n": len(model_data)}
 
         for metric in metrics:
-            values = model_data[metric].values
+            if metric not in model_data:
+                row[metric] = "N/A"
+                continue
+            values = model_data[metric].dropna().to_numpy()
+            if values.size == 0:
+                row[metric] = "N/A"
+                continue
             mean_val = np.mean(values)
-            std_val = np.std(values)
-
-            # Format as mean ± std
-            if metric in ["accuracy", "f1", "auroc", "brier", "ece"]:
-                # Format with appropriate precision
-                if metric in ["accuracy", "f1", "auroc"]:
-                    row[metric] = f"{mean_val:.4f} ± {std_val:.4f}"
-                else:
-                    row[metric] = f"{mean_val:.4f} ± {std_val:.4f}"
-            elif metric == "fpr_at_tpr95":
-                row[metric] = f"{mean_val:.4f} ± {std_val:.4f}"
+            if values.size > 1:
+                std_val = np.std(values, ddof=1)
+                ci = 1.96 * std_val / np.sqrt(values.size)
+            else:
+                ci = 0.0
+            row[metric] = f"{mean_val:.4f} ± {ci:.4f}"
 
         results.append(row)
 
@@ -64,18 +65,17 @@ def main() -> None:
     # Read evaluation results
     df = pd.read_csv(args.eval_csv)
 
-    # Define metrics to include in the table
-    metrics = ["accuracy", "f1", "auroc", "brier", "ece", "fpr_at_tpr95"]
+    metrics = ["auroc", "ece_pre_fused", "ece_post_fused", "brier_post_fused"]
 
     # Calculate statistics
     summary_df = calculate_statistics(df, metrics)
 
     # Create markdown table
-    markdown_table = "# S0 Model Performance Summary (IID/Test)\n\n"
-    markdown_table += "**Metrics: Mean ± Standard Deviation (3 seeds)**\n\n"
+    markdown_table = "# S0 / S1 Model Performance Summary\n\n"
+    markdown_table += "**Metrics: Mean ± 95% CI (per model)**\n\n"
 
     # Create table header
-    headers = ["Model", "Accuracy", "F1", "AUROC", "Brier", "ECE", "FPR@95"]
+    headers = ["Model", "AUROC", "ECE_pre", "ECE_post", "Brier_post"]
     markdown_table += "| " + " | ".join(headers) + " |\n"
     markdown_table += "|-" + "-|-" * (len(headers) - 1) + "-|\n"
 
@@ -83,18 +83,18 @@ def main() -> None:
     for _, row in summary_df.iterrows():
         table_row = [
             row["Model"],
-            row["accuracy"],
-            row["f1"],
             row["auroc"],
-            row["brier"],
-            row["ece"],
-            row["fpr_at_tpr95"],
+            row["ece_pre_fused"],
+            row["ece_post_fused"],
+            row["brier_post_fused"],
         ]
         markdown_table += "| " + " | ".join(table_row) + " |\n"
 
-    # Add sample sizes
-    markdown_table += "\n**Sample size per model: 3 seeds**\n"
-    markdown_table += "**Total test samples: 2400**\n"
+    markdown_table += "\n**Entries per model:** "
+    markdown_table += ", ".join(
+        f"{row['Model']} (n={row['n']})" for _, row in summary_df.iterrows()
+    )
+    markdown_table += "\n"
 
     # Write to file
     out_path = Path(args.out_table)

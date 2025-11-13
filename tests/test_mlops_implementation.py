@@ -127,8 +127,8 @@ class TestMetrics:
         )
 
         assert 0.0 <= ece_value <= 1.0
-        assert bins_used == 15
-        assert low_sample_warning is True  # N=100 < 150 triggers warning
+        assert bins_used == 10  # N=100 < 150 triggers bin reduction
+        assert low_sample_warning is True
 
     def test_compute_ece_fixed_bins_and_warning(self):
         """测试ECE固定bins及低样本警告"""
@@ -139,12 +139,12 @@ class TestMetrics:
         _, bins_used_small, low_warning_small = compute_ece(
             y_true_small, y_prob_small, n_bins=None
         )
-        assert bins_used_small == 15
+        assert bins_used_small == 10
         assert low_warning_small is True
 
         # 大样本 => 不触发警告
         y_true_large = np.array([1, 0] * 200)
-        y_prob_large = np.random.rand(400)
+        y_prob_large = np.linspace(0.01, 0.99, 400)
 
         _, bins_used_large, low_warning_large = compute_ece(
             y_true_large, y_prob_large, n_bins=None

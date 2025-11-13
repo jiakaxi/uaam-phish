@@ -8,7 +8,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 import pandas as pd
 from sklearn.metrics import accuracy_score, f1_score, roc_auc_score
@@ -40,14 +40,14 @@ def parse_args() -> argparse.Namespace:
 
 
 def extract_metadata(run_dir: Path) -> Dict[str, str]:
-    # 从实验目录名提取模型名称和种子
     exp_name = run_dir.name
+    prefix = "s1" if exp_name.lower().startswith("s1") else "s0"
     if "earlyconcat" in exp_name:
-        model_name = "s0_earlyconcat"
+        model_name = f"{prefix}_earlyconcat"
     elif "lateavg" in exp_name:
-        model_name = "s0_lateavg"
+        model_name = f"{prefix}_lateavg"
     else:
-        model_name = exp_name.split("_")[0]  # 默认取第一个部分
+        model_name = exp_name.split("_")[0]
 
     # 从目录名提取种子（假设格式为 ..._seed_42_...）
     seed = "unknown"
@@ -101,6 +101,17 @@ def evaluate_predictions(csv_path: Path) -> Dict[str, float | bool]:
     }
 
 
+def load_eval_summary(run_dir: Path) -> Dict[str, Any]:
+    eval_path = run_dir / "results" / "eval_summary.json"
+    if not eval_path.exists():
+        return {}
+    try:
+        with open(eval_path, "r", encoding="utf-8") as handle:
+            return json.load(handle)
+    except Exception:
+        return {}
+
+
 def main() -> None:
     args = parse_args()
     runs_root = Path(args.runs_dir)
@@ -127,6 +138,21 @@ def main() -> None:
 
             metrics = evaluate_predictions(preds_path)
             record.update(metrics)
+
+            eval_summary = load_eval_summary(run_dir)
+            fused_eval = eval_summary.get("fused", {})
+            modalities_eval = eval_summary.get("modalities", {})
+            record["umodule_enabled"] = bool(eval_summary)
+            record["ece_pre_fused"] = fused_eval.get("ece_pre", record.get("ece"))
+            record["ece_post_fused"] = fused_eval.get("ece_post", record.get("ece"))
+            record["brier_post_fused"] = fused_eval.get(
+                "brier_post", record.get("brier")
+            )
+            for mod in ("url", "html", "visual"):
+                mod_stats = modalities_eval.get(mod, {})
+                record[f"ece_pre_{mod}"] = mod_stats.get("ece_pre")
+                record[f"ece_post_{mod}"] = mod_stats.get("ece_post")
+                record[f"brier_post_{mod}"] = mod_stats.get("brier_post")
             summary_records.append(record)
 
             out_path = run_dir / "eval_summary.json"

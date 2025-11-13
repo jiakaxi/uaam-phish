@@ -1,0 +1,13 @@
+{
+  "current_experiment": 6,
+  "completed": [
+    1
+  ],
+  "failed": [
+    2,
+    3,
+    4,
+    5,
+    6
+  ]
+}

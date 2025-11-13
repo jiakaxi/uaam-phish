@@ -1,5 +1,56 @@
 # 变更总结
 
+## 2025-11-12: S1实验Pipeline启动 - U-Module集成与完整训练
+
+### Phase 1-2: 配置验证与Smoke Test ✅
+
+**修复问题**:
+1. **U-Module温度优化数值稳定性**
+   - 文件: `src/modules/u_module.py`
+   - 问题: LBFGS优化器的strong_wolfe线搜索在某些情况下导致ZeroDivisionError
+   - 解决方案: 添加try-except块，失败时回退到无线搜索的LBFGS
+
+2. **train_hydra.py max_epochs处理**
+   - 文件: `scripts/train_hydra.py`
+   - 问题: `trainer.max_epochs=null` 时代码无法正确处理None值
+   - 解决方案:
+     - 第139行: 只有当`trainer.max_epochs`不为None时才覆盖`train.epochs`
+     - 第204行: `if max_epochs is None or max_epochs > 0:` 支持None值
+     - 第226行: `elif max_epochs is not None and max_epochs == 0:` 安全判断
+
+**验证结果**:
+- ✅ S1 IID配置: `umodule.enabled=true`, `mc_iters=10`, `temperature_init=1.0`
+- ✅ S1 Brand-OOD配置: 同上
+- ✅ Smoke test (1 epoch): 生成所有预期artifacts
+  - `calibration.json` - 包含tau参数
+  - `reliability_before_ts_val.png` & `reliability_post_test.png`
+  - `predictions_test.csv` - 包含r_url/r_html/r_img
+  - `eval_summary.json` - per-modality指标
+  - `SUMMARY.md` - RO1洞察
+
+### Phase 3: 完整3-Seed实验 (自动化运行中) ✅
+
+**训练计划** (每个约2小时，共12小时):
+1. [运行中] S1 IID seed=42 - 开始: 2025-11-12 15:53, 进度: Epoch 7/20
+2. [自动排队] S1 IID seed=43
+3. [自动排队] S1 IID seed=44
+4. [自动排队] S1 Brand-OOD seed=42
+5. [自动排队] S1 Brand-OOD seed=43
+6. [自动排队] S1 Brand-OOD seed=44
+
+**自动化状态**: ✅ 已启动 (2025-11-12 16:26)
+- **监控脚本**: `scripts/full_s1_automation.py` (运行中)
+- **日志文件**: `workspace/full_automation.log`
+- **检查间隔**: 3分钟
+- **自动流程**:
+  1. 监控实验1 →
+  2. 自动启动实验2-6 →
+  3. 自动运行Phase 4分析
+
+**实验目录**: `experiments/s1_iid_lateavg_YYYYMMDD_HHMMSS/`
+
+---
+
 ## 2025-11-11: Brand-OOD数据分割修复
 
 ### 问题背景

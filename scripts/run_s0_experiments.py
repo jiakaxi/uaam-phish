@@ -16,10 +16,12 @@ SCENARIO_TO_CONFIG = {
     "iid": {
         "s0_earlyconcat": "s0_iid_earlyconcat",
         "s0_lateavg": "s0_iid_lateavg",
+        "s1_lateavg": "s1_iid_lateavg",
     },
     "brandood": {
         "s0_earlyconcat": "s0_brandood_earlyconcat",
         "s0_lateavg": "s0_brandood_lateavg",
+        "s1_lateavg": "s1_brandood_lateavg",
     },
 }
 
@@ -36,7 +38,7 @@ def parse_args() -> argparse.Namespace:
         "--models",
         nargs="+",
         default=["s0_earlyconcat", "s0_lateavg"],
-        help="Model keys (s0_earlyconcat / s0_lateavg).",
+        help="Model keys (s0_earlyconcat / s0_lateavg / s1_lateavg).",
     )
     parser.add_argument(
         "--seeds",
