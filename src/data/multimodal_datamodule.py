@@ -37,7 +37,7 @@ def multimodal_collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
     for key in batch[0].keys():
         values = [item[key] for item in batch]
 
-        if key in ("id", "image_path"):
+        if key in ("id", "image_path", "url_text", "html_path"):
             # Keep strings as list
             collated[key] = values
         elif key == "html":
@@ -47,6 +47,13 @@ def multimodal_collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
                 "attention_mask": torch.stack(
                     [item[key]["attention_mask"] for item in batch]
                 ),
+            }
+        elif key == "meta":
+            # Handle meta dict - keep string fields as lists
+            collated[key] = {
+                "scenario": [item[key]["scenario"] for item in batch],
+                "corruption_level": [item[key]["corruption_level"] for item in batch],
+                "protocol": [item[key]["protocol"] for item in batch],
             }
         elif isinstance(values[0], torch.Tensor):
             # Stack tensors
@@ -71,6 +78,8 @@ class MultimodalDataset(Dataset):
         corrupt_root: Optional[Path] = None,
         preload_html: bool = True,
         cache_root: Optional[Path] = None,  # 缓存根目录
+        protocol: str = "iid",  # Protocol: iid, brandood, temporal, etc.
+        scenario: Optional[str] = None,  # Explicit scenario override
     ) -> None:
         self.df = df.reset_index(drop=True)
         self.url_max_len = url_max_len
@@ -81,6 +90,8 @@ class MultimodalDataset(Dataset):
         self.image_dir = image_dir
         self.corrupt_root = Path(corrupt_root) if corrupt_root else None
         self.cache_root = Path(cache_root) if cache_root else None
+        self.protocol = protocol
+        self.scenario_override = scenario
 
         # 预加载HTML文件到内存（性能优化）
         self.html_cache: Dict[int, str] = {}
@@ -158,6 +169,13 @@ class MultimodalDataset(Dataset):
             html_input_ids = html_encoded
             html_attention_mask = torch.ones_like(html_input_ids)
 
+        # Determine scenario and corruption level
+        scenario, corruption_level = self._get_scenario(idx, row)
+
+        # Extract raw text fields for C-Module
+        url_text_str = self._safe_string(row.get("url_text", row.get("url", "")))
+        html_path_str = self._safe_string(row.get("html_path", ""))
+
         return {
             "id": sample_id,
             "url": url_ids,
@@ -167,7 +185,14 @@ class MultimodalDataset(Dataset):
             },
             "visual": image_tensor,
             "label": torch.tensor(label, dtype=torch.long),
-            "image_path": image_path_str,  # Added for C-Module OCR
+            "image_path": image_path_str,  # For C-Module OCR
+            "url_text": url_text_str,  # For C-Module brand extraction
+            "html_path": html_path_str,  # For C-Module brand extraction
+            "meta": {
+                "scenario": scenario,
+                "corruption_level": corruption_level,
+                "protocol": self.protocol,
+            },
         }
 
     @staticmethod
@@ -175,6 +200,110 @@ class MultimodalDataset(Dataset):
         if isinstance(value, str):
             return value
         return "" if pd.isna(value) else str(value)
+
+    def _get_scenario(self, idx: int, row: pd.Series) -> Tuple[str, str]:
+        """
+        Determine scenario and corruption level for a sample.
+
+        Returns:
+            Tuple[str, str]: (scenario, corruption_level)
+            - scenario: 'clean', 'light', 'medium', 'heavy', 'brandood'
+            - corruption_level: 'clean', 'light', 'medium', 'heavy'
+        """
+        # If scenario is explicitly overridden (e.g., for multi-corruption test sets)
+        if self.scenario_override:
+            corruption_level = (
+                self.scenario_override
+                if self.scenario_override != "brandood"
+                else "clean"
+            )
+            return self.scenario_override, corruption_level
+
+        # Check for explicit corruption_level column in CSV
+        if "corruption_level" in row and pd.notna(row["corruption_level"]):
+            corr_level = str(row["corruption_level"]).lower()
+            if corr_level in ["light", "medium", "heavy"]:
+                return corr_level, corr_level
+            elif corr_level == "clean":
+                return "clean", "clean"
+
+        # Infer from image path fields (check all candidate fields)
+        path_fields = [
+            "img_path",
+            "img_path_corrupt",
+            "img_path_full",
+            "img_path_cached",
+            "image_path",
+        ]
+        for field in path_fields:
+            if field in row and pd.notna(row[field]):
+                path_str = self._safe_string(row[field])
+                if path_str:
+                    path_lower = path_str.lower()
+                    if "corrupt" in path_lower or "corruption" in path_lower:
+                        # Try to infer level from path
+                        if (
+                            "light" in path_lower
+                            or "_l_" in path_lower
+                            or "_l/" in path_lower
+                            or "/l/" in path_lower
+                        ):
+                            return "light", "light"
+                        elif (
+                            "medium" in path_lower
+                            or "_m_" in path_lower
+                            or "_m/" in path_lower
+                            or "/m/" in path_lower
+                        ):
+                            return "medium", "medium"
+                        elif (
+                            "heavy" in path_lower
+                            or "_h_" in path_lower
+                            or "_h/" in path_lower
+                            or "/h/" in path_lower
+                        ):
+                            return "heavy", "heavy"
+                        else:
+                            # Generic corruption without level
+                            return "medium", "medium"
+
+        # Also try the selected image path (if files exist)
+        image_path_str = self._select_image_path(row)
+        if image_path_str:
+            path_lower = image_path_str.lower()
+            if "corrupt" in path_lower or "corruption" in path_lower:
+                # Try to infer level from path
+                if (
+                    "light" in path_lower
+                    or "_l_" in path_lower
+                    or "_l/" in path_lower
+                    or "/l/" in path_lower
+                ):
+                    return "light", "light"
+                elif (
+                    "medium" in path_lower
+                    or "_m_" in path_lower
+                    or "_m/" in path_lower
+                    or "/m/" in path_lower
+                ):
+                    return "medium", "medium"
+                elif (
+                    "heavy" in path_lower
+                    or "_h_" in path_lower
+                    or "_h/" in path_lower
+                    or "/h/" in path_lower
+                ):
+                    return "heavy", "heavy"
+                else:
+                    # Generic corruption without level
+                    return "medium", "medium"
+
+        # Check protocol-specific scenarios
+        if self.protocol == "brandood":
+            return "brandood", "clean"
+
+        # Default: clean IID scenario
+        return "clean", "clean"
 
     def _tokenize_url(self, url_text: str) -> torch.LongTensor:
         char_ids = [min(ord(c), self.url_vocab_size - 1) for c in url_text]
@@ -486,6 +615,17 @@ class MultimodalDataModule(pl.LightningDataModule):
         tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
         train_transform, eval_transform = self._build_transforms()
 
+        # Infer protocol from split metadata or use default
+        protocol = self.split_metadata.get("protocol", self.split_protocol)
+        if protocol == "presplit":
+            # Try to infer from CSV paths
+            if self.train_csv and "brandood" in str(self.train_csv).lower():
+                protocol = "brandood"
+            elif self.train_csv and "temporal" in str(self.train_csv).lower():
+                protocol = "temporal"
+            else:
+                protocol = "iid"
+
         if stage in (None, "fit", "train"):
             self.train_dataset = MultimodalDataset(
                 train_df,
@@ -498,6 +638,8 @@ class MultimodalDataModule(pl.LightningDataModule):
                 corrupt_root=self.corrupt_root,
                 preload_html=self.preload_html,
                 cache_root=self.preprocessed_train_dir,  # 训练集缓存目录
+                protocol=protocol,
+                scenario=None,  # Will be inferred per sample
             )
             self.val_dataset = MultimodalDataset(
                 val_df,
@@ -510,6 +652,8 @@ class MultimodalDataModule(pl.LightningDataModule):
                 corrupt_root=self.corrupt_root,
                 preload_html=self.preload_html,
                 cache_root=self.preprocessed_val_dir,  # 验证集缓存目录
+                protocol=protocol,
+                scenario=None,  # Will be inferred per sample
             )
 
         if stage in (None, "test"):
@@ -524,6 +668,8 @@ class MultimodalDataModule(pl.LightningDataModule):
                 corrupt_root=self.corrupt_root,
                 preload_html=self.preload_html,
                 cache_root=self.preprocessed_test_dir,  # 测试集缓存目录
+                protocol=protocol,
+                scenario=None,  # Will be inferred per sample
             )
 
     # ------------------------------------------------------------------ #

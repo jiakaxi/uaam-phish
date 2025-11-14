@@ -1,0 +1,137 @@
+﻿
+================================================================================
+IID数据集HTML完整性检查
+================================================================================
+
+检查: workspace/data/splits/iid/train_cached.csv
+================================================================================
+总样本数: 11200
+python :
+At C:\Users\Lenovo\AppData\Local\Temp\ps-script-32e3d351-26ac-4cd0-ae1f-fdb831c856ff.ps1:81 char:1
++ python check_html_integrity.py 2>&1 | Out-File -Encoding utf8 html_ch ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+
+检查HTML:   0%|          | 0/11200 [00:00<?, ?it/s]
+检查HTML:   3%|▎         | 312/11200 [00:00<00:03, 3114.39it/s]
+检查HTML:   6%|▌         | 630/11200 [00:00<00:03, 3149.62it/s]
+检查HTML:   8%|▊         | 945/11200 [00:00<00:03, 3138.77it/s]
+检查HTML:  11%|█▏        | 1266/11200 [00:00<00:03, 3163.53it/s]
+检查HTML:  14%|█▍        | 1583/11200 [00:00<00:03, 3151.76it/s]
+检查HTML:  17%|█▋        | 1899/11200 [00:00<00:02, 3106.31it/s]
+检查HTML:  20%|█▉        | 2210/11200 [00:00<00:02, 3001.98it/s]
+检查HTML:  22%|██▏       | 2516/11200 [00:00<00:02, 3019.85it/s]
+检查HTML:  25%|██▌       | 2828/11200 [00:00<00:02, 3048.70it/s]
+检查HTML:  28%|██▊       | 3134/11200 [00:01<00:02, 3047.40it/s]
+检查HTML:  31%|███       | 3440/11200 [00:01<00:02, 3041.36it/s]
+检查HTML:  33%|███▎      | 3749/11200 [00:01<00:02, 3050.72it/s]
+检查HTML:  36%|███▌      | 4055/11200 [00:01<00:02, 2985.47it/s]
+检查HTML:  39%|███▉      | 4361/11200 [00:01<00:02, 2988.94it/s]
+检查HTML:  42%|████▏     | 4661/11200 [00:01<00:02, 2991.28it/s]
+检查HTML:  45%|████▍     | 4985/11200 [00:01<00:02, 3063.86it/s]
+检查HTML:  47%|████▋     | 5300/11200 [00:01<00:01, 3082.09it/s]
+检查HTML:  50%|█████     | 5609/11200 [00:01<00:01, 3036.76it/s]
+检查HTML:  53%|█████▎    | 5935/11200 [00:01<00:01, 3098.03it/s]
+检查HTML:  56%|█████▌    | 6263/11200 [00:02<00:01, 3149.51it/s]
+检查HTML:  59%|█████▉    | 6591/11200 [00:02<00:01, 3184.19it/s]
+检查HTML:  62%|██████▏   | 6931/11200 [00:02<00:01, 3246.64it/s]
+检查HTML:  65%|██████▍   | 7256/11200 [00:02<00:01, 3214.57it/s]
+检查HTML:  68%|██████▊   | 7586/11200 [00:02<00:01, 3237.81it/s]
+检查HTML:  71%|███████   | 7910/11200 [00:02<00:01, 3217.91it/s]
+检查HTML:  74%|███████▎  | 8240/11200 [00:02<00:00, 3238.36it/s]
+检查HTML:  77%|███████▋  | 8570/11200 [00:02<00:00, 3247.96it/s]
+检查HTML:  79%|███████▉  | 8895/11200 [00:02<00:00, 3204.53it/s]
+检查HTML:  82%|████████▏ | 9219/11200 [00:02<00:00, 3207.32it/s]
+检查HTML:  85%|████████▌ | 9541/11200 [00:03<00:00, 3208.15it/s]
+检查HTML:  88%|████████▊ | 9878/11200 [00:03<00:00, 3249.45it/s]
+检查HTML:  91%|█████████▏| 10222/11200 [00:03<00:00, 3297.05it/s]
+检查HTML:  94%|█████████▍| 10553/11200 [00:03<00:00, 3297.55it/s]
+检查HTML:  97%|█████████▋| 10904/11200 [00:03<00:00, 3358.83it/s]
+检查HTML: 100%|██████████| 11200/11200 [00:03<00:00, 3157.40it/s]
+
+[OK] 有效HTML: 10704 (95.6%)
+[MISS] 缺失HTML: 496 (4.4%)
+[EMPTY] 空HTML: 0 (0.0%)
+[ERROR] 读取错误: 0 (0.0%)
+
+前5个缺失HTML的样本:
+  idx=3, id=phish__DocuSign+2020-08-23-12`27`22, reason=file_not_exist
+    url: https://thrustfinancialgroup.com/abchfdfsdadadfgvh/docusignmodified
+  idx=14, id=phish__Outlook+2020-09-14-11`04`40, reason=file_not_exist
+    url: http://pqzilghglgxhkubb-dot-millinium.ey.r.appspot.com
+  idx=25, id=phish__Alibaba+2020-06-04-11`21`11, reason=file_not_exist
+    url: https://dexterlimited.com/wp-admins/login.php?cmd=login_submit&id=b5136b3e1cf7c6
+  idx=30, id=phish__Outlook+2020-09-14-00`12`09, reason=file_not_exist
+    url: http://diiyeqkgnvvscejs-dot-millinium.ey.r.appspot.com
+  idx=43, id=phish__Outlook+2020-09-14-04`17`14, reason=file_not_exist
+    url: http://iogpbqxsuwxsgtjp-dot-millinium.ey.r.appspot.com
+
+检查: workspace/data/splits/iid/val_cached.csv
+================================================================================
+总样本数: 2400
+
+检查HTML:   0%|          | 0/2400 [00:00<?, ?it/s]
+检查HTML:  14%|█▍        | 346/2400 [00:00<00:00, 3452.94it/s]
+检查HTML:  29%|██▉       | 692/2400 [00:00<00:00, 3433.24it/s]
+检查HTML:  43%|████▎     | 1036/2400 [00:00<00:00, 3296.36it/s]
+检查HTML:  57%|█████▋    | 1370/2400 [00:00<00:00, 3302.07it/s]
+检查HTML:  72%|███████▏  | 1721/2400 [00:00<00:00, 3355.36it/s]
+检查HTML:  86%|████████▌ | 2067/2400 [00:00<00:00, 3388.58it/s]
+检查HTML: 100%|██████████| 2400/2400 [00:00<00:00, 3396.99it/s]
+
+[OK] 有效HTML: 2307 (96.1%)
+[MISS] 缺失HTML: 93 (3.9%)
+[EMPTY] 空HTML: 0 (0.0%)
+[ERROR] 读取错误: 0 (0.0%)
+
+前5个缺失HTML的样本:
+  idx=50, id=phish__DHL Airways, Inc.+2020-08-09-00`13`10, reason=file_not_exist
+    url: http://securkenya.com/wp-content/dh1
+  idx=53, id=phish__LinkedIn Corporation+2020-05-17-08`43`18, reason=file_not_exist
+    url: https://cosmoia.com/wp-content/plugins/content/5e43a4bd816129c6ba9bd5dd5078fde6?
+  idx=67, id=phish__Bank of America+2020-06-26-20`27`38, reason=file_not_exist
+    url: https://www.chakradevgroup.com/boa/99f15f5909b6c4ebd2a43af4a83c7d78/action.php
+  idx=99, id=phish__Bank of America+2020-06-27-23`01`35, reason=file_not_exist
+    url: https://www.chakradevgroup.com/boa/0c1baafd8dce370d3111782aae71e05d/action.php
+  idx=122, id=phish__Outlook+2020-09-13-12`10`55, reason=file_not_exist
+    url: http://ngzlkqbpeyyotnse-dot-millinium.ey.r.appspot.com
+
+检查: workspace/data/splits/iid/test_cached.csv
+================================================================================
+总样本数: 2400
+
+检查HTML:   0%|          | 0/2400 [00:00<?, ?it/s]
+检查HTML:  13%|█▎        | 320/2400 [00:00<00:00, 3191.46it/s]
+检查HTML:  27%|██▋       | 643/2400 [00:00<00:00, 3200.02it/s]
+检查HTML:  40%|████      | 967/2400 [00:00<00:00, 3215.44it/s]
+检查HTML:  55%|█████▍    | 1317/2400 [00:00<00:00, 3322.00it/s]
+检查HTML:  69%|██████▉   | 1664/2400 [00:00<00:00, 3372.48it/s]
+检查HTML:  85%|████████▍ | 2033/2400 [00:00<00:00, 3479.12it/s]
+检查HTML:  99%|█████████▉| 2384/2400 [00:00<00:00, 3487.32it/s]
+检查HTML: 100%|██████████| 2400/2400 [00:00<00:00, 3391.62it/s]
+
+[OK] 有效HTML: 2274 (94.8%)
+[MISS] 缺失HTML: 126 (5.2%)
+[EMPTY] 空HTML: 0 (0.0%)
+[ERROR] 读取错误: 0 (0.0%)
+
+前5个缺失HTML的样本:
+  idx=3, id=phish__Outlook+2020-09-13-21`46`50, reason=file_not_exist
+    url: http://ldgbtrjdxgojtfng-dot-millinium.ey.r.appspot.com
+  idx=34, id=phish__LinkedIn Corporation+2020-05-02-13`27`46, reason=file_not_exist
+    url: https://cosmoia.com/wp-content/plugins/content/4ab80f52ea6fa366ef68ec5b235905cf/
+  idx=55, id=phish__Webmail Providers+2020-06-08-09`49`15, reason=file_not_exist
+    url: http://stefaninicompany.net/webadmin/login.php?l=_JeHFUq_VJOXK0QWHtoGYDw17742564
+  idx=82, id=phish__LinkedIn Corporation+2020-05-19-04`17`28, reason=file_not_exist
+    url: https://cosmoia.com/wp-content/plugins/content/a88376d68b8e5714743b796727ee88f8?
+  idx=86, id=phish__Outlook+2020-09-13-22`54`38, reason=file_not_exist
+    url: http://jkibxyzqmpknzjmo-dot-millinium.ey.r.appspot.com
+
+================================================================================
+汇总统计
+================================================================================
+总计缺失HTML: 715
+总计空HTML: 0
+总计读取错误: 0
+总计有问题样本: 715

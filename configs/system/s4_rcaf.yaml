@@ -1,0 +1,50 @@
+# S4 RCAF Full System Configuration
+# Adaptive fusion with learned lambda_c
+
+_target_: src.systems.s4_rcaf_system.S4RCAFSystem
+_recursive_: false
+
+# ===== Encoder Parameters (复用 S0 架构) =====
+# URL Encoder (2-layer BiLSTM, character-level)
+url_vocab_size: ${model.url_vocab_size}
+url_embed_dim: ${model.url_embed_dim}
+url_hidden_dim: ${model.url_hidden_dim}
+url_num_layers: ${model.url_num_layers}
+url_max_len: ${model.url_max_len}
+
+# HTML Encoder (BERT-based)
+html_model_name: ${model.html_model_name}
+html_hidden_dim: ${model.html_hidden_dim}
+html_projection_dim: ${model.html_projection_dim}
+html_freeze_bert: ${model.html_freeze_bert}
+
+# Visual Encoder (ResNet-based)
+visual_model_name: ${model.visual_model_name}
+visual_pretrained: ${model.visual_pretrained}
+visual_projection_dim: ${model.visual_projection_dim}
+visual_freeze_backbone: ${model.visual_freeze_backbone}
+
+# ===== Training Parameters =====
+learning_rate: 1.0e-4
+weight_decay: 1.0e-4
+dropout: 0.3
+pos_weight: null  # Optional class weighting for imbalanced data
+
+# ===== Optimizer Configuration =====
+# Separate learning rates for encoders and fusion module
+optimizer:
+  encoder_lr: 1.0e-4   # Learning rate for modality encoders
+  fusion_lr: 1.0e-3    # Higher LR for lambda gate (faster adaptation)
+
+# ===== Scheduler Configuration =====
+scheduler:
+  type: cosine         # Cosine annealing scheduler
+  warmup_steps: 500    # Warmup steps for stable training
+
+# ===== Fusion Configuration =====
+# Adaptive fusion with learned lambda_c
+fusion:
+  hidden_dim: 16                  # Lambda gate hidden dimension
+  temperature: 2.0                # Temperature scaling for softmax (gamma)
+  warmup_epochs: 5                # Optional: fix lambda_c=0.5 for first N epochs
+  lambda_regularization: 0.01     # L2 regularization on lambda gate params

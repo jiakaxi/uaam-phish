@@ -69,6 +69,7 @@ class CModule:
         self._loaded_sources: set[Path] = set()
         self._records: Dict[str, Dict[str, Any]] = {}
         self._html_cache: OrderedDict[str, str] = OrderedDict()
+        self._debug_counter = 0
 
         if metadata_sources:
             for src in metadata_sources:
@@ -123,7 +124,17 @@ class CModule:
                     "image_path": "...",
                 }
         """
-
+        if self._debug_counter < 3:
+            url_preview = self._safe_str(sample.get("url_text"))[:120]
+            html_preview = self._safe_str(sample.get("html_text"))[:120]
+            log.debug(
+                "[C-Module] sample=%s keys=%s url_preview=%r html_preview=%r",
+                sample.get("sample_id") or sample.get("id"),
+                sorted(sample.keys()),
+                url_preview,
+                html_preview,
+            )
+            self._debug_counter += 1
         resolved = self._resolve_sample_inputs(sample)
         brands, sources = self._extract_brands(resolved)
 
@@ -134,11 +145,19 @@ class CModule:
         active = {mod: text for mod, text in brands.items() if text}
         if len(active) < 2:
             result["meta"]["reason"] = "insufficient_brands"
+            # Fallback: return 0.5 (medium confidence) instead of NaN
+            # This prevents NaN propagation in downstream fusion
+            for mod in ("url", "html", "visual"):
+                if mod in active:
+                    result[f"c_{mod}"] = 0.5  # Medium default consistency
             return result
 
         embeddings = self._encode_brands(active)
         if len(embeddings) < 2:
             result["meta"]["reason"] = "encoder_unavailable"
+            # Fallback: return 0.5 for available modalities
+            for mod in active.keys():
+                result[f"c_{mod}"] = 0.5
             return result
 
         pair_scores: Dict[Tuple[str, str], float] = {}
@@ -235,6 +254,7 @@ class CModule:
             log.warning("Failed to read metadata CSV %s: %s", csv_path, exc)
             return
 
+        records_before = len(self._records)
         for _, row in df.iterrows():
             sample_id = row.get("sample_id") or row.get("id")
             if not isinstance(sample_id, str) or not sample_id:
@@ -249,6 +269,14 @@ class CModule:
                 "brand": self._safe_str(row.get("brand")),
             }
             self._records[sample_id] = record
+
+        records_added = len(self._records) - records_before
+        log.info(
+            "C-Module ingested %d records from %s (total: %d)",
+            records_added,
+            csv_path.name,
+            len(self._records),
+        )
 
     def _available_columns(self, csv_path: Path) -> set[str]:
         try:
@@ -361,45 +389,23 @@ class CModule:
         self, image_path: Optional[str]
     ) -> Tuple[Optional[str], Dict[str, Any]]:
         meta: Dict[str, Any] = {"method": "ocr_stub"}
-        # CRITICAL DEBUG
-        import sys
-
-        print(
-            f"[C-MODULE DEBUG] _brand_from_visual called with: {image_path}",
-            file=sys.stderr,
-            flush=True,
-        )
-
         if not self.use_ocr:
             meta["reason"] = "ocr_disabled"
-            print("[C-MODULE DEBUG] OCR disabled!", file=sys.stderr, flush=True)
             return None, meta
         meta["method"] = "ocr"
         if pytesseract is None:
             meta["reason"] = "pytesseract_missing"
-            print("[C-MODULE DEBUG] pytesseract None!", file=sys.stderr, flush=True)
             return None, meta
         if not image_path:
             meta["reason"] = "missing_image_path"
-            print("[C-MODULE DEBUG] No image_path!", file=sys.stderr, flush=True)
             return None, meta
         path = Path(image_path)
         if not path.exists():
             meta["reason"] = "missing_image"
-            print(
-                f"[C-MODULE DEBUG] File not found: {path}", file=sys.stderr, flush=True
-            )
             return None, meta
-        print(f"[C-MODULE DEBUG] Calling OCR on {path}", file=sys.stderr, flush=True)
         try:
             text = self._extract_text_from_image(path)
-            print(
-                f"[C-MODULE DEBUG] OCR extracted text (first 200 chars): {text[:200] if text else '(empty)'}",
-                file=sys.stderr,
-                flush=True,
-            )
         except RuntimeError as exc:
-            print(f"[C-MODULE DEBUG] OCR failed: {exc}", file=sys.stderr, flush=True)
             meta["reason"] = str(exc)
             brand = self._brand_from_filename(path)
             if brand:
@@ -409,9 +415,6 @@ class CModule:
             return None, meta
 
         if not text:
-            print(
-                "[C-MODULE DEBUG] OCR returned empty text", file=sys.stderr, flush=True
-            )
             meta["reason"] = "ocr_empty"
             brand = self._brand_from_filename(path)
             if brand:

@@ -1,5 +1,261 @@
 # 变更总结
 
+## 2025-11-14 下午 (2): S4 IID C-Module NaN问题修复 🔧
+
+### 问题诊断
+
+**症状**: S4 IID实验中C-Module返回全NaN，导致自适应融合失效
+- Lambda_c统计：全NaN
+- Alpha权重：固定1/3（均匀分配）
+- 训练损失：变成NaN
+- 警告：持续出现"Some samples have no valid modalities! Using uniform weights"
+
+**根因分析**:
+1. DataModule的`__getitem__`返回的batch**缺少原始文本字段**（`url_text`, `html_path`）
+2. S4系统的`_compute_consistency_batch`没有将HTML数据传递给C-Module
+3. C-Module无法提取品牌，导致`active modalities < 2`，返回全NaN
+
+### 修复内容
+
+#### 1. DataModule修复 (`src/data/multimodal_datamodule.py`)
+
+**添加原始文本字段到batch**:
+```python
+# __getitem__ 返回值中添加
+"url_text": url_text_str,      # For C-Module brand extraction
+"html_path": html_path_str,    # For C-Module brand extraction
+```
+
+**更新collate函数**:
+```python
+if key in ("id", "image_path", "url_text", "html_path"):
+    # Keep strings as list
+    collated[key] = values
+```
+
+#### 2. S4系统修复 (`src/systems/s4_rcaf_system.py`)
+
+**完善`_compute_consistency_batch`数据传递**:
+```python
+# Extract batch fields
+html_paths = self._batch_to_list(batch.get("html_path"))
+url_texts = self._batch_to_list(batch.get("url_text"))
+
+# Build sample dict for C-Module with all available fields
+sample = {
+    "url_text": url_texts[idx],
+    "html_path": html_paths[idx],  # 之前缺失！
+    "image_path": image_paths[idx],
+}
+```
+
+#### 3. C-Module增强日志 (`src/modules/c_module.py`)
+
+添加metadata ingest成功日志:
+```python
+log.info("C-Module ingested %d records from %s (total: %d)",
+         records_added, csv_path.name, len(self._records))
+```
+
+### 验证结果
+
+**修复后测试** (`s4_iid_fix_test`):
+- ✅ C-Module收集了6个metadata sources
+- ✅ 前204个batches正常（损失0.382，非NaN）
+- ⚠️ 从batch 212开始仍出现部分NaN（可能某些样本HTML缺失）
+
+**改进**:
+- 训练损失从全NaN改为大部分正常
+- 说明修复方向正确，但需要进一步处理缺失数据情况
+
+### 下一步
+
+1. 添加C-Module的鲁棒性处理（HTML缺失时的fallback）
+2. 检查为什么某些HTML文件无法访问
+3. 考虑在C-Module中添加更多的debug信息
+
+---
+
+## 2025-11-14 下午: S4 实验运行 + Unicode 编码修复 ✅
+
+### 实验执行状态
+
+1. **S4 Brand-OOD 实验** ✅ **已完成**
+   - 实验ID: `s4_brandood_rcaf_20251114_114719`
+   - 训练轮数: 10 epochs
+   - 测试指标:
+     - Accuracy: **0.9286**
+     - AUROC: **0.9231**
+     - F1-Score: **0.9630**
+   - Lambda_c 均值: 0.433 (一致性权重 43.3%)
+   - 模态权重: Visual (52.92%) > HTML (37.08%) > URL (10.00%)
+
+2. **S4 IID 实验** 🔄 **运行中**
+   - 命令: `python scripts/train_hydra.py experiment=s4_iid_rcaf train.epochs=10 logger=csv`
+   - 预计完成时间: ~2 分钟
+
+### Unicode 编码错误修复
+
+**问题**:
+```
+UnicodeEncodeError: 'gbk' codec can't encode character '\u2713' in position 0
+```
+
+**原因**: Windows GBK 编码无法处理日志中的 Unicode 符号 (✓ checkmark)
+
+**修复位置**: `src/systems/s4_rcaf_system.py`
+
+**修改内容**:
+```python
+# Line 529 (修改前)
+log.info(f"✓ Saved lambda statistics to {stats_path}")
+
+# Line 529 (修改后)
+log.info(f"[S4] Saved lambda statistics to {stats_path}")
+
+# Line 548 (修改前)
+log.info(f"✓ Saved per-sample data to {csv_path}")
+
+# Line 548 (修改后)
+log.info(f"[S4] Saved per-sample data to {csv_path}")
+```
+
+**影响**:
+- ✅ 仅影响日志显示，不影响实验结果
+- ✅ Brand-OOD 实验的所有指标和文件已正常保存
+- ⚠️ 需要重新运行实验以验证日志正常输出（但优先级低）
+
+### 新增文档
+
+- `S4_实验结果分析报告.md` - S4 Brand-OOD 实验的详细分析报告
+
+---
+
+## 2025-11-14 上午: S4 自适应融合系统（RCAF Full）实施 ✅
+
+### 概述
+
+完整实施了 S4 RCAF Full 系统，使用学习型 λ_c 替代 S3 的固定权重，实现真正的自适应融合。
+
+### 核心特性
+
+1. **Lambda Gate 网络** - 学习每样本的 λ_c 权重
+2. **自适应融合模块** - 完整的 S4 融合流程（U_m = r_m + λ_c * c_m）
+3. **端到端训练** - 全流程使用 p_fused，确保梯度流向 lambda gate
+4. **训练稳定性监控** - 监控 λ_c 统计量（mean, std）防止 collapse
+5. **场景标签支持** - DataModule 支持 scenario 标签（clean/light/medium/heavy/brandood）
+
+### 新增文件
+
+**核心模块**:
+- `src/modules/fusion/lambda_gate.py` - Lambda Gate 网络（MLP: 2 → 16 → 1）
+- `src/modules/fusion/adaptive_fusion.py` - 自适应融合模块
+- `src/systems/s4_rcaf_system.py` - S4 Lightning 系统
+
+**配置文件**:
+- `configs/system/s4_rcaf.yaml` - 系统配置
+- `configs/experiment/s4_iid_rcaf.yaml` - IID 实验
+- `configs/experiment/s4_brandood_rcaf.yaml` - Brand-OOD 实验
+- `configs/experiment/s4_corruption_rcaf.yaml` - Corruption 鲁棒性实验
+
+**测试文件**:
+- `tests/test_datamodule_scenario.py` - Scenario 标签功能测试（6 个测试，全部通过）
+
+### 修改文件
+
+**DataModule 支持 scenario 标签** (`src/data/multimodal_datamodule.py`):
+- 添加 `protocol` 和 `scenario` 参数
+- 实现 `_get_scenario()` 方法（从 CSV 字段或路径推断）
+- 修改 `__getitem__` 返回 `meta` 字段：`{scenario, corruption_level, protocol}`
+- 更新 `multimodal_collate_fn` 处理 meta 字段
+
+### 关键实现细节
+
+#### 1. Lambda Gate 初始化
+- 使用 He 初始化（ReLU 层）和 Xavier 初始化（输出层）
+- 确保训练稳定性
+
+#### 2. 训练策略（修正）
+```python
+# ✓ 正确：训练、验证、测试全流程使用 adaptive fusion
+def training_step(self, batch):
+    outputs = self(batch)  # 包含 adaptive fusion
+    p_fused = outputs["probs"]
+    loss = F.cross_entropy(p_fused, labels)  # 梯度流向 lambda gate
+
+    # L2 正则化（仅针对 lambda_gate）
+    if self.lambda_regularization > 0:
+        lambda_params = self.adaptive_fusion.lambda_gate.parameters()
+        reg_loss = self.lambda_regularization * sum(p.pow(2).sum() for p in lambda_params)
+
+    return loss + reg_loss
+```
+
+#### 3. 监控与 Sanity Checks
+```python
+def on_train_epoch_end(self):
+    lambda_c_std = self.lambda_c_buffer.std()
+    lambda_c_mean = self.lambda_c_buffer.mean()
+
+    # Sanity checks
+    if lambda_c_std < 0.05:
+        warnings.warn("⚠️ Lambda_c collapsed!")
+    if lambda_c_mean not in [0.2, 0.8]:
+        warnings.warn("⚠️ Lambda_c mean out of range!")
+```
+
+#### 4. 输出文件生成
+- `s4_lambda_stats.json`: 按 scenario 分组的统计量
+- `s4_per_sample.csv`: 每个样本的 alpha_m 和 lambda_c
+
+### 测试结果
+
+**LambdaGate 测试**:
+- ✓ 输出形状正确 [B, M]
+- ✓ 值在 (0, 1) 范围内
+- ✓ Mask 功能正常
+- ✓ NaN 处理正常
+- ✓ 梯度流通正常
+
+**AdaptiveFusion 测试**:
+- ✓ 所有形状正确
+- ✓ alpha_m 求和为 1
+- ✓ p_fused 求和为 1
+- ✓ Mask 功能正确（缺失模态权重为 0）
+- ✓ lambda_c 有变化（std > 0.01）
+
+**DataModule Scenario 测试**:
+- ✓ Clean IID 场景识别
+- ✓ Corruption level 推断
+- ✓ Brand-OOD 场景识别
+- ✓ Scenario override 功能
+- ✓ Collate function 处理 meta
+- ✓ 从路径推断 scenario
+
+### S3 vs S4 关键差异
+
+| 组件 | S3 (Fixed Fusion) | S4 (Adaptive Fusion) |
+|------|------------------|---------------------|
+| λ_c | 超参数 (e.g., 0.5) | 学习网络输出 |
+| 所有样本相同? | ✓ 是 | ✗ 否（每样本不同）|
+| 训练 loss | LateAvg（仅编码器）| Adaptive fusion（编码器 + lambda gate）|
+| 调优 | 网格搜索 λ_c + γ | 仅网格搜索 γ |
+| 场景适应 | 无 | 自动（λ_c 调整）|
+
+**λ_c 的方差是 S4 "自适应"的关键证据。**
+
+### 下一步
+
+1. 创建单元测试 `tests/test_s4_adaptive.py`（验证梯度流和非常量性）
+2. 创建超参数扫描脚本 `scripts/run_s4_sweep.sh`（扫描 gamma）
+3. 创建分析脚本：
+   - `scripts/analyze_s4_adaptivity.py`（λ_c 分布和方差分析）
+   - `scripts/plot_s4_suppression.py`（视觉模态抑制率）
+   - `scripts/compare_s3_s4.py`（S3 vs S4 性能对比）
+4. 运行完整实验流程
+
+---
+
 ## 2025-11-14: 修复 OCR 品牌提取 fallback 逻辑 ✅
 
 ### 问题
@@ -1688,3 +1944,59 @@ python tools/check_cache_integrity.py --scenario iid
 **变更状态**: ✅ 已完成
 **性能提升**: 3.43 it/s（达到预期目标）
 **论文合规**: ✅ 通过（Add-only修改）
+
+---
+
+## S4 鑷€傚簲铻嶅悎淇瀹屾垚 (2025-11-14) 鉁?
+### 闂璇婃柇涓庝慨澶?
+**闂**: 璁粌涓ぇ閲忚鍛?"Some samples have no valid modalities!"
+
+**鏍规湰鍘熷洜** (鐢ㄦ埛璇婃柇):
+1. S4RCAFSystem 鏈敞鍐?metadata CSVs
+2. 鍙潬鎬ц绠椾骇鐢?NaN (log(0) 闂)
+3. 涓€鑷存€у垎鏁板叏鏄?NaN (metadata 缂哄け)
+
+### 瀹炴柦鐨勪慨澶?
+#### 淇 1: Metadata 娉ㄥ唽
+- 娣诲姞 _gather_metadata_sources() 鏂规硶
+- C-Module 鎴愬姛鍔犺浇 16,000 鏉¤褰?
+#### 淇 2: 鍙潬鎬ц绠?NaN 澶勭悊
+- 娣诲姞 torch.clamp 閬垮厤 log(0)
+- 鐔靛綊涓€鍖栧埌 [0,1]
+- NaN fallback to 0.5
+
+#### 淇 3: 涓€鑷存€ц绠?NaN 澶勭悊
+- torch.nan_to_num(c_m, nan=0.0)
+- 鍏佽浠呬娇鐢?r_m 缁х画铻嶅悎
+
+### 淇鏁堟灉
+
+| 鎸囨爣 | 淇鍓?| 淇鍚?|
+|------|--------|--------|
+| 璀﹀憡娆℃暟 | ~300娆?epoch | **0娆?* |
+| C-Module records | 0 | 16,000 |
+| 鏈夋晥妯℃€佹暟 | 0/3 | 鈮?/3 |
+
+### 淇敼鐨勬枃浠?
+**src/systems/s4_rcaf_system.py**:
+- L136: 娣诲姞 metadata_sources 鏀堕泦
+- L147: 浼犻€掔粰 C-Module
+- L300-319: 鏀硅繘鍙潬鎬ц绠?(clamp + 褰掍竴鍖?+ NaN fallback)
+- L298-301: 娣诲姞涓€鑷存€?NaN 澶勭悊
+- L574-615: 娣诲姞 _gather_metadata_sources() 鍜?_expand_csv_candidates()
+
+### 楠岃瘉缁撴灉
+
+鉁?璀﹀憡瀹屽叏娑堥櫎 (0 娆?
+鉁?C-Module 姝ｅ父宸ヤ綔
+鉁?璁粌寰幆鎵ц鎴愬姛
+鉁?鍑嗗寮€濮嬪畬鏁村疄楠?
+### 涓嬩竴姝?
+绔嬪嵆鍙繍琛屽畬鏁?S4 瀹為獙:
+`ash
+python scripts/train_hydra.py experiment=s4_iid_rcaf train.epochs=50
+python scripts/train_hydra.py experiment=s4_brandood_rcaf train.epochs=50
+python scripts/train_hydra.py experiment=s4_corruption_rcaf train.epochs=20
+`
+
+---
