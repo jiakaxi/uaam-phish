@@ -176,6 +176,12 @@ class MultimodalDataset(Dataset):
         url_text_str = self._safe_string(row.get("url_text", row.get("url", "")))
         html_path_str = self._safe_string(row.get("html_path", ""))
 
+        # Brand presence flag (for C-Module gating); default to 0 if missing
+        try:
+            bp_val = int(row.get("brand_present", 0))
+        except Exception:
+            bp_val = 0
+
         return {
             "id": sample_id,
             "url": url_ids,
@@ -185,6 +191,7 @@ class MultimodalDataset(Dataset):
             },
             "visual": image_tensor,
             "label": torch.tensor(label, dtype=torch.long),
+            "brand_present": torch.tensor(bp_val, dtype=torch.long),
             "image_path": image_path_str,  # For C-Module OCR
             "url_text": url_text_str,  # For C-Module brand extraction
             "html_path": html_path_str,  # For C-Module brand extraction

@@ -188,3 +188,5 @@ Get-Content workspace\full_automation.log -Tail 50
 3. 验证训练目录是否有新的checkpoint文件
 
 **自动化已全面启动！您现在可以放心休息，明天早上查看完整结果！** 🎉
+
+

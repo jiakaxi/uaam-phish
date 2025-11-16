@@ -192,3 +192,5 @@ html_encoded = self.html_tokenizer(
   - `_load_image`：添加图像大小检查和快速resize
   - `_load_html`：使用缓存
 - `configs/experiment/s0_*.yaml`：优化DataLoader配置
+
+

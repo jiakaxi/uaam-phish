@@ -203,3 +203,5 @@ Get-ChildItem experiments\ -Directory -Filter "s1_*" | Sort-Object LastWriteTime
 
 - **2025-11-12 15:53**: 启动实验1 (S1 IID seed=42)
 - **2025-11-12 16:22**: 创建状态跟踪文档和批处理脚本
+
+

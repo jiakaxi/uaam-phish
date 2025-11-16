@@ -80,3 +80,5 @@ class VisualEncoder(nn.Module):
         z_visual = self.projection(features)  # (batch, 256)
 
         return z_visual
+
+

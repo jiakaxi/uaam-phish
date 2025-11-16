@@ -102,3 +102,5 @@ python scripts/train_hydra.py \
 
 2. `configs/experiment/s0_*.yaml` (4个文件)
    - 将`num_workers`改为0
+
+

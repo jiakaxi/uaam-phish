@@ -277,6 +277,12 @@ class S4RCAFSystem(pl.LightningModule):
         # Get consistency scores (C-Module) - process per sample
         c_m = self._compute_consistency_batch(batch)  # [B, 3]
 
+        # Gate consistency by brand presence: only use C when brand_present == 1
+        bp = batch.get("brand_present")
+        if isinstance(bp, torch.Tensor):
+            bp_mask = (bp == 1).unsqueeze(1)  # [B, 1]
+            c_m = c_m * bp_mask  # brand_present == 0 -> c_m = 0 for all modalities
+
         # Normalize c_m to [0, 1] from [-1, 1]
         c_m_normalized = (c_m + 1.0) * 0.5
 

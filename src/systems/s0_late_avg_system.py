@@ -321,6 +321,15 @@ class S0LateAverageSystem(pl.LightningModule):
     ) -> Optional[Dict[str, Any]]:
         if not (self.cmodule_enabled and self.c_module and stage in ("val", "test")):
             return None
+        # Gate C-Module by brand presence: only use C for samples with brand_present == 1
+        brand_present = batch.get("brand_present")
+        if isinstance(brand_present, torch.Tensor):
+            bp_mask = (brand_present.to(device) == 1)
+            if not bool(bp_mask.any()):
+                # No samples with brand evidence; skip C-Module
+                return None
+        else:
+            bp_mask = None
         url_tensor = batch.get("url")
         if not isinstance(url_tensor, torch.Tensor):
             return None
@@ -363,7 +372,11 @@ class S0LateAverageSystem(pl.LightningModule):
                     image_paths[idx] if idx < len(image_paths) else None
                 ),  # Added for visual OCR
             }
-            result = self.c_module.score_consistency(payload)
+            # Skip C-Module when brand_present == 0 for this sample
+            if bp_mask is not None and not bool(bp_mask[idx].item()):
+                result = {}
+            else:
+                result = self.c_module.score_consistency(payload)
             results.append(result)
             value = result.get("c_mean", math.nan)
             try:

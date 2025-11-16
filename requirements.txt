@@ -13,6 +13,7 @@ pytesseract==0.3.10
 numpy==1.26.4
 pandas==2.2.3
 scikit-learn==1.5.2
+scikit-image==0.22.0
 Pillow==10.4.0
 tqdm==4.66.5
 
@@ -37,3 +38,6 @@ dvc==3.50.1
 pytest==8.1.0
 ruff==0.6.9
 black==24.8.0
+
+# Web scraping & validation
+playwright==1.40.0
